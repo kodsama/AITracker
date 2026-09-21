@@ -1,0 +1,20 @@
+# Shared lint configuration for every package in the workspace.
+include: package:lints/recommended.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+
+linter:
+  rules:
+    - always_declare_return_types
+    - avoid_dynamic_calls
+    - prefer_final_locals
+    - prefer_const_constructors
+    - prefer_const_declarations
+    - unnecessary_late
+    - use_super_parameters
+    - directives_ordering
+    - omit_local_variable_types

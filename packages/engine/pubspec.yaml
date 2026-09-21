@@ -1,0 +1,21 @@
+name: aitracking_engine
+description: >-
+  Flutter-free engine that turns AI coding-assistant transcripts into work
+  blocks and writes them to WorkingHours, Diarium, CSV and Excel.
+version: 0.1.0
+publish_to: none
+resolution: workspace
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  collection: ^1.19.1
+  excel: ^4.0.6
+  meta: ^1.19.0
+  path: ^1.9.1
+  sqlite3: ^3.6.0
+
+dev_dependencies:
+  lints: ^6.1.0
+  test: ^1.31.0

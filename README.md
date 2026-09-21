@@ -1,0 +1,119 @@
+<img src="assets/logo/aitracking-256.png" width="96" alt="">
+
+AITracking
+==========
+
+Time spent with an AI coding assistant is time worked, and none of it reaches
+the timesheet. AITracking reads the transcripts the assistant already writes,
+turns them into blocks of attention, and files them into
+[WorkingHours](https://workinghoursapp.com), [Diarium](https://diariumapp.com),
+a CSV, or an Excel workbook.
+
+Nothing is measured twice: parallel sessions in two repositories share one wall
+clock, and time a timesheet already holds is never written over.
+
+What it does
+------------
+
+Claude Code keeps a JSONL transcript per session under `~/.claude/projects`,
+every line stamped with a time and the directory the session was working in.
+That is enough to reconstruct the day:
+
+- Consecutive events closer together than the idle gap are one block of work.
+- A gap credits nothing, so lunch is not billed.
+- When two repositories are open at once, a minute goes to one of them, never
+  to both.
+- Blocks are trimmed against what the target store already holds, split at
+  midnight, and dropped when they are too short to be real work.
+
+A rule maps a directory onto a project, and the project name carries the
+customer: `Byte Buddies - idbuddy`. What no rule covers is listed rather than
+silently dropped.
+
+The app
+-------
+
+`Hours` shows the blocks, the totals per project and what is unmapped. Select
+any number of rows to reassign, rename or strike them out in one go; the edits
+are kept beside the measurement and survive re-reading the transcripts.
+
+`Projects` holds the rules, in the order they are tried, and offers a one-click
+rule for every directory that has hours and no project.
+
+`Settings` has the idle gap, the shortest block worth counting, the sinks, and
+the MCP endpoint.
+
+Filing always previews first. The dialog says what each sink would write, what
+it would skip as already logged, and what it refuses to touch; nothing is
+written until you press the button.
+
+Sinks
+-----
+
+**WorkingHours** has no API, so its SQLite store is written directly, which is
+[what the forum ends up recommending](https://forum.workinghoursapp.com/d/1832).
+That store is the live one, and it is whole-file synced to the cloud, so a write
+only happens while the app is closed, never while a timer is running, and always
+after the database has been copied. Missing projects are created with the
+currency the rest of the ledger uses. Each unit is marked `aitracking` in its
+details.
+
+**Diarium** gets one entry a day, stamped at a fixed time so a later run
+rewrites its own entry instead of stacking duplicates. An entry you wrote at
+that minute is stepped over, never edited. Diarium also reads WorkingHours by
+itself, so the WorkingHours sink alone already shows up in the journal.
+
+**CSV and Excel** are rewritten from the transcripts on every run: one row per
+block with the date, the clock times, the hours as a number, the company, the
+project and the repository. Unmapped blocks are included with an empty project
+column, because a spreadsheet is where you go to find what the rules missed.
+
+Command line
+------------
+
+```
+dart run aitracking_cli:aitracking preview --days 30
+dart run aitracking_cli:aitracking sync --days 30            # preview
+dart run aitracking_cli:aitracking sync --days 30 --apply --quit-apps
+dart run aitracking_cli:aitracking config
+```
+
+`launchd/ai.aitracking.nightly.plist` runs the sync every night; it closes the
+apps for the write and starts them again afterwards. The transcripts are pruned
+after about a month, so a scheduled run is what keeps the history.
+
+MCP
+---
+
+The same engine is served over the Model Context Protocol, so an assistant can
+read the hours it helped spend and file them. `docs/mcp.md` has the tools and
+the client configuration. The desktop app can also serve it on a local socket
+while it is open.
+
+Configuration
+-------------
+
+`~/Library/Application Support/AITracking/config.json`, or `$AITRACKING_CONFIG`.
+Hand edits live beside it in `overrides.json`. Everything in the app writes to
+those two files, and nothing else is stored.
+
+Building
+--------
+
+```
+dart pub get
+dart test packages/engine packages/mcp packages/cli
+cd app && flutter test && flutter build macos --release
+```
+
+macOS only for now: both target apps are macOS, and the store paths are theirs.
+The engine itself has nothing platform-specific in it beyond those paths.
+
+The app runs unsandboxed. It reads another app's container and writes another
+app's database, which is exactly what the sandbox exists to prevent, so this is
+a build for the machine it runs on rather than for the App Store.
+
+Licence
+-------
+
+GPL-3.0. See `LICENSE`.

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "aitracking": {
+      "command": "dart",
+      "args": ["run", "aitracking_mcp:aitracking_mcp"],
+      "cwd": "/path/to/AITracking"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+# Root of the AITracking pub workspace.
+# The Flutter-free engine, the CLI, the MCP server and the desktop GUI resolve
+# together so a single `dart pub get` wires the whole monorepo with one lockfile.
+name: aitracking_workspace
+publish_to: none
+
+environment:
+  sdk: ^3.13.0
+
+# `lints` lives here so `package:lints/recommended.yaml` resolves for the
+# analyzer at the workspace root.
+dev_dependencies:
+  lints: ^6.1.0
+
+workspace:
+  - packages/engine
+  - packages/cli
+  - packages/mcp
+  - app

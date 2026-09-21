@@ -1,0 +1,22 @@
+name: aitracking_mcp
+description: >-
+  Model Context Protocol (MCP) server exposing the AITracking engine as tools,
+  so an LLM client can read the hours spent with AI assistants and file them
+  into WorkingHours, Diarium or a spreadsheet over stdio or local TCP.
+version: 0.1.0
+publish_to: none
+resolution: workspace
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  aitracking_engine:
+
+dev_dependencies:
+  lints: ^6.1.0
+  sqlite3: ^3.6.0
+  test: ^1.31.0
+
+executables:
+  aitracking_mcp:

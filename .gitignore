@@ -1,0 +1,19 @@
+.DS_Store
+
+# Dart / Flutter
+.dart_tool/
+.packages
+build/
+coverage/
+*.iml
+
+# Local tooling artifacts
+.zed/
+.vscode/
+.idea/
+.mcp.json
+
+# Local configuration and exports, never someone else's hours
+config.json
+*.xlsx
+*.csv
