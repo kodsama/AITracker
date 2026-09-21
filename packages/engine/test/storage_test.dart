@@ -1,13 +1,13 @@
 import 'dart:io';
 
-import 'package:aitracking_engine/aitracking_engine.dart';
+import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
   late Directory temp;
 
-  setUp(() => temp = Directory.systemTemp.createTempSync('aitracking_store'));
+  setUp(() => temp = Directory.systemTemp.createTempSync('aitracker_store'));
   tearDown(() => temp.deleteSync(recursive: true));
 
   group('OverrideStore', () {
@@ -72,7 +72,7 @@ void main() {
     test('lives beside the configuration', () {
       expect(
         p.dirname(OverrideStore.defaultPath()),
-        p.dirname(AiTrackingConfig.defaultPath()),
+        p.dirname(AiTrackerConfig.defaultPath()),
       );
       expect(p.basename(OverrideStore.defaultPath()), 'overrides.json');
     });
@@ -81,21 +81,21 @@ void main() {
   group('paths', () {
     test('a relative sink path hangs off the home directory', () {
       expect(
-        AiTrackingConfig.resolveHome('Documents/AI hours.csv'),
-        p.join(AiTrackingConfig.homeDirectory(), 'Documents/AI hours.csv'),
+        AiTrackerConfig.resolveHome('Documents/AI hours.csv'),
+        p.join(AiTrackerConfig.homeDirectory(), 'Documents/AI hours.csv'),
       );
-      expect(AiTrackingConfig.resolveHome('/tmp/x.csv'), '/tmp/x.csv');
+      expect(AiTrackerConfig.resolveHome('/tmp/x.csv'), '/tmp/x.csv');
     });
 
     test('the configuration lives in Application Support', () {
       expect(
-        AiTrackingConfig.defaultPath(),
-        endsWith('Library/Application Support/AITracking/config.json'),
+        AiTrackerConfig.defaultPath(),
+        endsWith('Library/Application Support/AITracker/config.json'),
       );
     });
 
     test('sources are discovered from the assistant config directories', () {
-      final found = AiTrackingConfig.discoverSources();
+      final found = AiTrackerConfig.discoverSources();
       for (final source in found) {
         expect(p.basename(source), 'projects');
         expect(Directory(source).existsSync(), isTrue);
@@ -106,7 +106,7 @@ void main() {
     test('a configuration file holding the wrong shape falls back', () {
       final path = '${temp.path}/config.json';
       File(path).writeAsStringSync('"not a config"');
-      expect(AiTrackingConfig.load(path).rules, isEmpty);
+      expect(AiTrackerConfig.load(path).rules, isEmpty);
     });
   });
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'src/screens/graphs_screen.dart';
 import 'src/screens/hours_screen.dart';
 import 'src/screens/rules_screen.dart';
 import 'src/screens/settings_screen.dart';
@@ -7,22 +8,22 @@ import 'src/state/app_state.dart';
 import 'src/theme.dart';
 
 void main() {
-  runApp(AiTrackingApp(state: AppState()));
+  runApp(AiTrackerApp(state: AppState()));
 }
 
 /// The desktop app: read the hours, correct them, file them.
-class AiTrackingApp extends StatefulWidget {
+class AiTrackerApp extends StatefulWidget {
   /// Creates the app over [state].
-  const AiTrackingApp({required this.state, super.key});
+  const AiTrackerApp({required this.state, super.key});
 
   /// Configuration, blocks and selection.
   final AppState state;
 
   @override
-  State<AiTrackingApp> createState() => _AiTrackingAppState();
+  State<AiTrackerApp> createState() => _AiTrackerAppState();
 }
 
-class _AiTrackingAppState extends State<AiTrackingApp> {
+class _AiTrackerAppState extends State<AiTrackerApp> {
   @override
   void initState() {
     super.initState();
@@ -31,7 +32,7 @@ class _AiTrackingAppState extends State<AiTrackingApp> {
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-    title: 'AITracking',
+    title: 'AITracker',
     debugShowCheckedModeBanner: false,
     theme: appTheme(Brightness.light),
     darkTheme: appTheme(Brightness.dark),
@@ -76,6 +77,11 @@ class _HomeShellState extends State<HomeShell> {
                 label: Text('Hours'),
               ),
               NavigationRailDestination(
+                icon: Icon(Icons.bar_chart_outlined),
+                selectedIcon: Icon(Icons.bar_chart),
+                label: Text('Graphs'),
+              ),
+              NavigationRailDestination(
                 icon: Icon(Icons.alt_route_outlined),
                 selectedIcon: Icon(Icons.alt_route),
                 label: Text('Projects'),
@@ -93,7 +99,8 @@ class _HomeShellState extends State<HomeShell> {
               animation: widget.state,
               builder: (context, _) => switch (_index) {
                 0 => HoursScreen(state: widget.state),
-                1 => RulesScreen(state: widget.state),
+                1 => GraphsScreen(state: widget.state),
+                2 => RulesScreen(state: widget.state),
                 _ => SettingsScreen(state: widget.state),
               },
             ),

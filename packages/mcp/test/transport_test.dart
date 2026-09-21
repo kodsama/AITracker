@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:aitracking_mcp/aitracking_mcp.dart';
+import 'package:aitracker_mcp/aitracker_mcp.dart';
 import 'package:test/test.dart';
 
 /// A sink that keeps what a transport wrote, so the loop can be driven without

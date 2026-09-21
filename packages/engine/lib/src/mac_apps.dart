@@ -1,5 +1,20 @@
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
+import 'config.dart';
+
+/// Whether the file at [databasePath] is the copy an app keeps open.
+///
+/// [defaultDatabasePath] is the store inside the app's own container. Anything
+/// outside that container is nobody's live database, so it can be written
+/// without closing anything, which is what keeps the tests off the machine's
+/// real apps.
+bool ownsStore(String databasePath, String defaultDatabasePath) => p.isWithin(
+  AiTrackerConfig.resolveHome(p.dirname(p.dirname(defaultDatabasePath))),
+  AiTrackerConfig.resolveHome(databasePath),
+);
+
 /// Whether a macOS app bundle is running, and how to stop and restart it.
 ///
 /// Both target apps keep their SQLite store open and write it back from memory,

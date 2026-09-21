@@ -1,7 +1,8 @@
-import 'package:aitracking_engine/aitracking_engine.dart';
+import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:flutter/material.dart';
 
 import '../state/app_state.dart';
+import 'period_picker.dart';
 
 /// The top of the Hours screen: how much time, over what window, and the button
 /// that files it.
@@ -68,17 +69,7 @@ class SummaryHeader extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          Wrap(
-            spacing: 8,
-            children: [
-              for (final range in Range.all)
-                ChoiceChip(
-                  label: Text(range.label),
-                  selected: state.range.label == range.label,
-                  onSelected: (_) => state.setRange(range),
-                ),
-            ],
-          ),
+          PeriodPicker(state: state),
           if (totals.isNotEmpty) ...[
             const SizedBox(height: 20),
             for (final entry in totals.take(6))

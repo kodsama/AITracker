@@ -49,13 +49,13 @@ class TrackedBlock {
 }
 
 /// Reads transcripts and resolves them into billable blocks.
-class AiTracking {
+class AiTracker {
   /// Creates a facade over [config] and the hand edits in [overrides].
-  AiTracking({required this.config, OverrideStore? overrides})
+  AiTracker({required this.config, OverrideStore? overrides})
     : overrides = overrides ?? OverrideStore();
 
   /// Sources, thresholds, rules and sink settings.
-  final AiTrackingConfig config;
+  final AiTrackerConfig config;
 
   /// Hand edits applied on top of the measurement.
   final OverrideStore overrides;

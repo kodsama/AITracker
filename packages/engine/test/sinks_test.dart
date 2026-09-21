@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:aitracking_engine/aitracking_engine.dart';
+import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:excel/excel.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -37,6 +37,14 @@ String workingHoursDb(Directory temp, {String? timerStartedAt}) {
       WorkUnitId integer primary key autoincrement not null, ProjectId integer not null,
       Duration bigint not null, End bigint not null, Description varchar not null,
       Details varchar not null, Start bigint not null);
+    create table Tags (
+      TagId integer primary key autoincrement not null, Value varchar not null,
+      Type integer not null, SortIndex integer not null, AutoAssign integer not null,
+      Details varchar not null, Icon varchar, Color varchar not null,
+      AdjustmentValue float not null, Hidden integer not null);
+    create table WorkUnitTags (
+      WorkUnitId integer not null, TagId integer not null, CustomValue varchar);
+    create table ProjectTags (ProjectId integer not null, TagId integer not null);
   ''');
   db.execute("insert into Settings values ('WatchStarted', ?)", [timerStartedAt ?? '']);
   db.execute(
@@ -50,7 +58,7 @@ String workingHoursDb(Directory temp, {String? timerStartedAt}) {
 void main() {
   late Directory temp;
 
-  setUp(() => temp = Directory.systemTemp.createTempSync('aitracking'));
+  setUp(() => temp = Directory.systemTemp.createTempSync('aitracker'));
   tearDown(() => temp.deleteSync(recursive: true));
 
   group('subtractBusy', () {
@@ -106,6 +114,20 @@ void main() {
   });
 
   group('WorkingHoursSink', () {
+    test('only guards the store the app actually holds open', () {
+      const live = WorkingHoursSink(config: WorkingHoursSinkConfig(), app: absent);
+      expect(live.appOwnsStore, isTrue);
+
+      final copy = WorkingHoursSink(
+        config: WorkingHoursSinkConfig(databasePath: '${temp.path}/wh.db'),
+        app: absent,
+      );
+      expect(copy.appOwnsStore, isFalse);
+
+      const journal = DiariumSink(config: DiariumSinkConfig(), app: absent);
+      expect(journal.appOwnsStore, isTrue);
+    });
+
     test('refuses when the database is missing', () {
       const sink = WorkingHoursSink(
         config: WorkingHoursSinkConfig(databasePath: '/nonexistent/wh.db'),
@@ -241,6 +263,79 @@ void main() {
       expect(report.backup, isNull);
     });
 
+    test('files under the mapped ledger name, with its customer and tags', () {
+      final path = workingHoursDb(temp);
+      final sink = WorkingHoursSink(
+        config: WorkingHoursSinkConfig(databasePath: path),
+        links: const [
+          ProjectLink(
+            name: 'Byte Buddies - idbuddy',
+            workingHours: 'BB - idbuddy',
+            customer: 'Byte Buddies',
+            workingHoursTags: ['Programming', 'idbuddy'],
+          ),
+        ],
+        app: absent,
+      );
+
+      sink.sync([
+        tracked(start: DateTime(2026, 9, 1, 9), end: DateTime(2026, 9, 1, 10)),
+      ], dryRun: false);
+
+      final db = sqlite3.open(path);
+      final project = db
+          .select('select * from Projects where Name = ?', ['BB - idbuddy'])
+          .single;
+      // The customer is a tag on the project, which is how this ledger does it.
+      final customer = db
+          .select(
+            'select t.Value from ProjectTags pt join Tags t on t.TagId = pt.TagId '
+            'where pt.ProjectId = ?',
+            [project['ProjectId']],
+          )
+          .single;
+      expect(customer['Value'], 'Byte Buddies');
+      final tags = db.select(
+        'select t.Value from WorkUnitTags wt join Tags t on t.TagId = wt.TagId',
+      );
+      expect(tags.map((r) => r['Value']), ['Programming', 'idbuddy']);
+      db.close();
+    });
+
+    test('reuses a tag the ledger already has rather than doubling it', () {
+      final path = workingHoursDb(temp);
+      final db = sqlite3.open(path);
+      db.execute(
+        'insert into Tags (Value, Type, SortIndex, AutoAssign, Details, Color, '
+        'AdjustmentValue, Hidden) values (?, 0, 1, 0, ?, ?, 0.0, 0)',
+        ['Programming', '', '#FF000000'],
+      );
+      final existing = db.select('select TagId from Tags').single['TagId'];
+      db.close();
+      final sink = WorkingHoursSink(
+        config: WorkingHoursSinkConfig(databasePath: path),
+        links: const [
+          ProjectLink(
+            name: 'Byte Buddies - idbuddy',
+            workingHoursTags: ['Programming'],
+          ),
+        ],
+        app: absent,
+      );
+
+      sink.sync([
+        tracked(start: DateTime(2026, 9, 1, 9), end: DateTime(2026, 9, 1, 10)),
+      ], dryRun: false);
+
+      final after = sqlite3.open(path);
+      expect(after.select('select * from Tags'), hasLength(1));
+      expect(
+        after.select('select TagId from WorkUnitTags').single['TagId'],
+        existing,
+      );
+      after.close();
+    });
+
     test('leaves unmapped and excluded blocks alone', () {
       final path = workingHoursDb(temp);
       final sink = WorkingHoursSink(
@@ -276,11 +371,15 @@ void main() {
     String diariumDb() {
       final path = '${temp.path}/diarium.db';
       final db = sqlite3.open(path);
-      db.execute(
-        'create table Entries (DiaryEntryId bigint primary key not null, '
-        'Heading varchar not null, Text varchar not null, Rating integer not null, '
-        'Latitude float not null, Longitude float not null)',
-      );
+      db.execute('''
+        create table Entries (DiaryEntryId bigint primary key not null,
+          Heading varchar not null, Text varchar not null, Rating integer not null,
+          Latitude float not null, Longitude float not null);
+        create table EntryTags (DiaryEntryId bigint not null,
+          DiaryTagId integer not null, TrackingValue varchar);
+        create table Tags (DiaryTagId integer primary key autoincrement not null,
+          Value varchar not null, Type integer not null, Color varchar, Icon varchar);
+      ''');
       db.close();
       return path;
     }
@@ -357,6 +456,34 @@ void main() {
       expect(entries.first['Heading'], 'Dinner');
       expect(fromTicks(entries.last['DiaryEntryId']! as int), DateTime(2026, 9, 1, 23, 56));
       after.close();
+    });
+
+    test('tags the entry for the projects that day, and retags on a rerun', () {
+      final path = diariumDb();
+      const link = ProjectLink(
+        name: 'Byte Buddies - idbuddy',
+        diariumTag: 'idbuddy',
+      );
+      final sink = DiariumSink(
+        config: DiariumSinkConfig(databasePath: path),
+        links: const [link],
+        app: absent,
+      );
+      final block = tracked(
+        start: DateTime(2026, 9, 1, 9),
+        end: DateTime(2026, 9, 1, 10),
+      );
+
+      sink.sync([block], dryRun: false);
+      sink.sync([block], dryRun: false);
+
+      final db = sqlite3.open(path);
+      final tags = db.select(
+        'select t.Value from EntryTags et join Tags t on t.DiaryTagId = et.DiaryTagId',
+      );
+      expect(tags.map((r) => r['Value']), ['idbuddy']);
+      expect(db.select('select * from Tags'), hasLength(1));
+      db.close();
     });
 
     test('a preview writes nothing', () {

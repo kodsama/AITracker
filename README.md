@@ -1,10 +1,10 @@
-<img src="assets/logo/aitracking-256.png" width="96" alt="">
+<img src="assets/logo/aitracker-256.png" width="96" alt="">
 
-AITracking
+AITracker
 ==========
 
 Time spent with an AI coding assistant is time worked, and none of it reaches
-the timesheet. AITracking reads the transcripts the assistant already writes,
+the timesheet. AITracker reads the transcripts the assistant already writes,
 turns them into blocks of attention, and files them into
 [WorkingHours](https://workinghoursapp.com), [Diarium](https://diariumapp.com),
 a CSV, or an Excel workbook.
@@ -37,8 +37,23 @@ The app
 any number of rows to reassign, rename or strike them out in one go; the edits
 are kept beside the measurement and survive re-reading the transcripts.
 
+`Graphs` draws the same hours: stacked bars over the period, a day at a time, a
+week at a time or a month at a time depending on how wide the window is, and a
+calendar underneath where each day takes the colour of the project that owned
+most of it and darkens with the hours. Pick the window from Today, Yesterday,
+this or last week, this or last month, the last two, this or last quarter, this
+semester, this year, or two dates of your own. The palette is fixed and
+validated for colour-vision separation, and every project is named in the legend
+and the hover card, so nothing is carried by colour alone.
+
 `Projects` holds the rules, in the order they are tried, and offers a one-click
-rule for every directory that has hours and no project.
+rule for every directory that has hours and no project. Under them sits the
+mapping: what each project is called in WorkingHours, the customer tag that
+ledger files it under, the tags to put on each work unit, its Diarium tag, and
+its colour. Every one of those fields suggests what the apps already hold and
+lets you type something new. Renaming asks which of the three should follow, so
+a project can deliberately read one way here and another in the ledger, and the
+mapping remembers they are the same work.
 
 `Settings` has the idle gap, the shortest block worth counting, the sinks, and
 the MCP endpoint.
@@ -55,12 +70,16 @@ Sinks
 That store is the live one, and it is whole-file synced to the cloud, so a write
 only happens while the app is closed, never while a timer is running, and always
 after the database has been copied. Missing projects are created with the
-currency the rest of the ledger uses. Each unit is marked `aitracking` in its
-details.
+currency the rest of the ledger uses, the customer tag the mapping names, and
+the colour it was given. Each unit is marked `aitracker` in its details and
+carries the mapped tags.
+
+Project colours can be pushed the other way too, so a project is drawn the same
+in both apps.
 
 **Diarium** gets one entry a day, stamped at a fixed time so a later run
-rewrites its own entry instead of stacking duplicates. An entry you wrote at
-that minute is stepped over, never edited. Diarium also reads WorkingHours by
+rewrites its own entry instead of stacking duplicates, tags and all. An entry
+you wrote at that minute is stepped over, never edited. Diarium also reads WorkingHours by
 itself, so the WorkingHours sink alone already shows up in the journal.
 
 **CSV and Excel** are rewritten from the transcripts on every run: one row per
@@ -72,13 +91,13 @@ Command line
 ------------
 
 ```
-dart run aitracking_cli:aitracking preview --days 30
-dart run aitracking_cli:aitracking sync --days 30            # preview
-dart run aitracking_cli:aitracking sync --days 30 --apply --quit-apps
-dart run aitracking_cli:aitracking config
+dart run aitracker_cli:aitracker preview --days 30
+dart run aitracker_cli:aitracker sync --days 30            # preview
+dart run aitracker_cli:aitracker sync --days 30 --apply --quit-apps
+dart run aitracker_cli:aitracker config
 ```
 
-`launchd/ai.aitracking.nightly.plist` runs the sync every night; it closes the
+`launchd/ai.aitracker.nightly.plist` runs the sync every night; it closes the
 apps for the write and starts them again afterwards. The transcripts are pruned
 after about a month, so a scheduled run is what keeps the history.
 
@@ -93,7 +112,7 @@ while it is open.
 Configuration
 -------------
 
-`~/Library/Application Support/AITracking/config.json`, or `$AITRACKING_CONFIG`.
+`~/Library/Application Support/AITracker/config.json`, or `$AITRACKER_CONFIG`.
 Hand edits live beside it in `overrides.json`. Everything in the app writes to
 those two files, and nothing else is stored.
 

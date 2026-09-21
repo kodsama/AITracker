@@ -27,6 +27,88 @@ class ProjectRule {
   Map<String, Object?> toJson() => {'match': match, 'project': project};
 }
 
+
+/// How one project this tool tracks lines up with the two apps.
+///
+/// Without an entry the project name is used verbatim in both. With one, the
+/// same work can be filed under a different project name in WorkingHours, be
+/// tagged there, and carry its own tag in the Diarium journal, so the three
+/// apps can each keep the names their own users expect.
+class ProjectLink {
+  /// Creates a link.
+  const ProjectLink({
+    required this.name,
+    this.workingHours,
+    this.customer,
+    this.workingHoursTags = const [],
+    this.diariumTag,
+    this.color,
+  });
+
+  /// Project name as this tool knows it, matching what a rule assigns.
+  final String name;
+
+  /// Project name in WorkingHours. Null means [name].
+  final String? workingHours;
+
+  /// Tag attached to the WorkingHours project when this tool creates it, which
+  /// is how that ledger records the customer.
+  final String? customer;
+
+  /// Tags put on every work unit written for this project.
+  final List<String> workingHoursTags;
+
+  /// Tag put on the Diarium entry for a day this project worked.
+  final String? diariumTag;
+
+  /// Colour for this project, `#AARRGGBB` as WorkingHours writes it. Null
+  /// leaves the sink's default.
+  final String? color;
+
+  /// Project name to write in WorkingHours.
+  String get workingHoursProject => workingHours ?? name;
+
+  /// Reads a link from its JSON form.
+  factory ProjectLink.fromJson(Map<String, Object?> json) => ProjectLink(
+    name: json['name']! as String,
+    workingHours: json['working_hours'] as String?,
+    customer: json['customer'] as String?,
+    workingHoursTags: [
+      for (final tag in (json['working_hours_tags'] as List?) ?? const [])
+        '$tag',
+    ],
+    diariumTag: json['diarium_tag'] as String?,
+    color: json['color'] as String?,
+  );
+
+  /// JSON form.
+  Map<String, Object?> toJson() => {
+    'name': name,
+    if (workingHours != null) 'working_hours': workingHours,
+    if (customer != null) 'customer': customer,
+    if (workingHoursTags.isNotEmpty) 'working_hours_tags': workingHoursTags,
+    if (diariumTag != null) 'diarium_tag': diariumTag,
+    if (color != null) 'color': color,
+  };
+
+  /// A copy with the given fields replaced.
+  ProjectLink copyWith({
+    String? name,
+    String? workingHours,
+    String? customer,
+    List<String>? workingHoursTags,
+    String? diariumTag,
+    String? color,
+  }) => ProjectLink(
+    name: name ?? this.name,
+    workingHours: workingHours ?? this.workingHours,
+    customer: customer ?? this.customer,
+    workingHoursTags: workingHoursTags ?? this.workingHoursTags,
+    diariumTag: diariumTag ?? this.diariumTag,
+    color: color ?? this.color,
+  );
+}
+
 /// Where and how the WorkingHours sink writes.
 class WorkingHoursSinkConfig {
   /// Creates the configuration.
@@ -153,13 +235,14 @@ class TabularSinkConfig {
 }
 
 /// Everything the engine reads before it touches a transcript or a store.
-class AiTrackingConfig {
+class AiTrackerConfig {
   /// Creates a configuration.
-  const AiTrackingConfig({
+  const AiTrackerConfig({
     required this.sources,
     this.idleGap = const Duration(minutes: 10),
     this.minBlock = const Duration(minutes: 5),
     this.rules = const [],
+    this.links = const [],
     this.fallbackProject,
     this.workingHours = const WorkingHoursSinkConfig(),
     this.diarium = const DiariumSinkConfig(),
@@ -179,6 +262,9 @@ class AiTrackingConfig {
 
   /// Directory-to-project rules, most specific first.
   final List<ProjectRule> rules;
+
+  /// How each project lines up with WorkingHours and Diarium.
+  final List<ProjectLink> links;
 
   /// Project for sessions no rule matches. Null leaves them unassigned, which
   /// keeps them out of the sinks and lists them as unmapped instead.
@@ -200,13 +286,13 @@ class AiTrackingConfig {
   final int mcpPort;
 
   /// Configuration with no rules, scanning whatever transcript roots exist.
-  factory AiTrackingConfig.initial() =>
-      AiTrackingConfig(sources: discoverSources());
+  factory AiTrackerConfig.initial() =>
+      AiTrackerConfig(sources: discoverSources());
 
   /// Reads a configuration from its JSON form.
-  factory AiTrackingConfig.fromJson(Map<String, Object?> json) {
+  factory AiTrackerConfig.fromJson(Map<String, Object?> json) {
     final sources = (json['sources'] as List?)?.map((e) => '$e').toList();
-    return AiTrackingConfig(
+    return AiTrackerConfig(
       sources: sources == null || sources.isEmpty
           ? discoverSources()
           : sources,
@@ -215,6 +301,10 @@ class AiTrackingConfig {
       rules: [
         for (final rule in (json['rules'] as List?) ?? const [])
           ProjectRule.fromJson((rule as Map).cast<String, Object?>()),
+      ],
+      links: [
+        for (final link in (json['projects'] as List?) ?? const [])
+          ProjectLink.fromJson((link as Map).cast<String, Object?>()),
       ],
       fallbackProject: json['fallback_project'] as String?,
       workingHours: WorkingHoursSinkConfig.fromJson(
@@ -237,6 +327,7 @@ class AiTrackingConfig {
     'idle_gap_minutes': idleGap.inMinutes,
     'min_block_minutes': minBlock.inMinutes,
     'rules': [for (final rule in rules) rule.toJson()],
+    'projects': [for (final link in links) link.toJson()],
     'fallback_project': fallbackProject,
     'working_hours': workingHours.toJson(),
     'diarium': diarium.toJson(),
@@ -246,22 +337,24 @@ class AiTrackingConfig {
   };
 
   /// A copy with the given fields replaced.
-  AiTrackingConfig copyWith({
+  AiTrackerConfig copyWith({
     List<String>? sources,
     Duration? idleGap,
     Duration? minBlock,
     List<ProjectRule>? rules,
+    List<ProjectLink>? links,
     String? fallbackProject,
     WorkingHoursSinkConfig? workingHours,
     DiariumSinkConfig? diarium,
     TabularSinkConfig? tabular,
     bool? mcpEnabled,
     int? mcpPort,
-  }) => AiTrackingConfig(
+  }) => AiTrackerConfig(
     sources: sources ?? this.sources,
     idleGap: idleGap ?? this.idleGap,
     minBlock: minBlock ?? this.minBlock,
     rules: rules ?? this.rules,
+    links: links ?? this.links,
     fallbackProject: fallbackProject ?? this.fallbackProject,
     workingHours: workingHours ?? this.workingHours,
     diarium: diarium ?? this.diarium,
@@ -269,6 +362,14 @@ class AiTrackingConfig {
     mcpEnabled: mcpEnabled ?? this.mcpEnabled,
     mcpPort: mcpPort ?? this.mcpPort,
   );
+
+  /// How [project] lines up with the two apps, if it has been mapped.
+  ProjectLink? linkFor(String project) {
+    for (final link in links) {
+      if (link.name == project) return link;
+    }
+    return null;
+  }
 
   /// Project a session in [directory] belongs to, or null when no rule matches
   /// and no [fallbackProject] is set.
@@ -324,28 +425,28 @@ class AiTrackingConfig {
   static String resolveHome(String path) =>
       p.isAbsolute(path) ? path : p.join(homeDirectory(), path);
 
-  /// Where the configuration lives: `$AITRACKING_CONFIG`, else
-  /// `~/Library/Application Support/AITracking/config.json`.
+  /// Where the configuration lives: `$AITRACKER_CONFIG`, else
+  /// `~/Library/Application Support/AITracker/config.json`.
   static String defaultPath() {
-    final override = Platform.environment['AITRACKING_CONFIG'];
+    final override = Platform.environment['AITRACKER_CONFIG'];
     if (override != null && override.isNotEmpty) return override;
     return p.join(
       homeDirectory(),
       'Library',
       'Application Support',
-      'AITracking',
+      'AITracker',
       'config.json',
     );
   }
 
   /// Loads the configuration from [path], falling back to [initial] when the
   /// file does not exist yet.
-  static AiTrackingConfig load([String? path]) {
+  static AiTrackerConfig load([String? path]) {
     final file = File(path ?? defaultPath());
-    if (!file.existsSync()) return AiTrackingConfig.initial();
+    if (!file.existsSync()) return AiTrackerConfig.initial();
     final decoded = jsonDecode(file.readAsStringSync());
-    if (decoded is! Map) return AiTrackingConfig.initial();
-    return AiTrackingConfig.fromJson(decoded.cast<String, Object?>());
+    if (decoded is! Map) return AiTrackerConfig.initial();
+    return AiTrackerConfig.fromJson(decoded.cast<String, Object?>());
   }
 
   /// Writes the configuration to [path], creating the directory if needed.

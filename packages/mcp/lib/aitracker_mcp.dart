@@ -1,4 +1,4 @@
-/// MCP (Model Context Protocol) server for AITracking.
+/// MCP (Model Context Protocol) server for AITracker.
 ///
 /// Exposes the engine over JSON-RPC 2.0 on either stdio (client-spawned) or a
 /// localhost TCP socket (the desktop app's always-on endpoint), so an assistant

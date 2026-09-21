@@ -1,4 +1,4 @@
-import 'package:aitracking_engine/aitracking_engine.dart';
+import 'package:aitracker_engine/aitracker_engine.dart';
 
 /// One MCP tool: a name, a human description, a JSON-Schema for its arguments,
 /// and an executor that runs the engine and returns a structured result.
@@ -24,15 +24,15 @@ class McpTool {
   final Future<Map<String, Object?>> Function(Map<String, Object?> args) run;
 }
 
-/// Builds the AITracking tool catalog.
+/// Builds the AITracker tool catalog.
 ///
 /// Configuration and hand edits are read on every call rather than captured
 /// once, so a change made in the desktop app is live for the next tool call.
 /// [configPath] and [overridesPath] override where those live, which is what
 /// the tests use.
 List<McpTool> buildTools({String? configPath, String? overridesPath}) {
-  AiTracking tracking() => AiTracking(
-    config: AiTrackingConfig.load(configPath),
+  AiTracker tracking() => AiTracker(
+    config: AiTrackerConfig.load(configPath),
     overrides: OverrideStore.load(overridesPath),
   );
 
@@ -142,7 +142,7 @@ List<McpTool> buildTools({String? configPath, String? overridesPath}) {
         },
       },
       run: (args) async {
-        final config = AiTrackingConfig.load(configPath);
+        final config = AiTrackerConfig.load(configPath);
         final report = WorkingHoursSink(
           config: config.workingHours,
           minBlock: config.minBlock,
@@ -170,13 +170,49 @@ List<McpTool> buildTools({String? configPath, String? overridesPath}) {
         },
       },
       run: (args) async {
-        final config = AiTrackingConfig.load(configPath);
+        final config = AiTrackerConfig.load(configPath);
         final report = DiariumSink(config: config.diarium).sync(
           read(args),
           dryRun: args['dry_run'] as bool? ?? true,
           quitApp: args['quit_app'] as bool? ?? false,
         );
         return {'ok': report.refusal == null, ...report.toJson()};
+      },
+    ),
+    McpTool(
+      name: 'sync_all',
+      description:
+          'File the blocks everywhere at once: WorkingHours, Diarium and the '
+          'spreadsheets, whichever are enabled. Previews by default. Each app '
+          'is closed and reopened on its own, and a refusal from one still '
+          'leaves the others written.',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'days': _days,
+          'since': _iso('Start of the window.'),
+          'until': _iso('End of the window.'),
+          'dry_run': _dryRun,
+          'quit_app': _quitApp('each app'),
+          'only': {
+            'type': 'array',
+            'items': {'type': 'string', 'enum': kSinkNames},
+            'description': 'Narrow the run to these sinks. Default: all of them.',
+          },
+        },
+      },
+      run: (args) async {
+        final reports = syncAll(
+          AiTrackerConfig.load(configPath),
+          read(args),
+          dryRun: args['dry_run'] as bool? ?? true,
+          quitApps: args['quit_app'] as bool? ?? false,
+          only: {for (final sink in (args['only'] as List?) ?? const []) '$sink'},
+        );
+        return {
+          'ok': reports.every((r) => r.refusal == null),
+          'sinks': [for (final report in reports) report.toJson()],
+        };
       },
     ),
     McpTool(
@@ -194,11 +230,150 @@ List<McpTool> buildTools({String? configPath, String? overridesPath}) {
         },
       },
       run: (args) async {
-        final config = AiTrackingConfig.load(configPath);
+        final config = AiTrackerConfig.load(configPath);
         final report = TabularSink(
           config: config.tabular,
         ).sync(read(args), dryRun: args['dry_run'] as bool? ?? true);
         return {'ok': true, ...report.toJson()};
+      },
+    ),
+    McpTool(
+      name: 'list_catalog',
+      description:
+          'What WorkingHours and Diarium already hold: projects with their '
+          'colours, tags, the customers the ledger records, and the journal '
+          'tags. Map onto these rather than inventing names.',
+      inputSchema: const {'type': 'object', 'properties': <String, Object?>{}},
+      run: (args) async => {
+        'ok': true,
+        ...Catalog.read(AiTrackerConfig.load(configPath)).toJson(),
+      },
+    ),
+    McpTool(
+      name: 'set_project_link',
+      description:
+          'Line a project up with the two apps: the name it is filed under in '
+          'WorkingHours, its customer tag there, the tags put on each work '
+          'unit, its Diarium tag, and its colour.',
+      inputSchema: {
+        'type': 'object',
+        'required': ['name'],
+        'properties': {
+          'name': {
+            'type': 'string',
+            'description': 'Project name as this tool knows it.',
+          },
+          'working_hours': {
+            'type': 'string',
+            'description':
+                'Project name in WorkingHours, when it differs from name.',
+          },
+          'customer': {
+            'type': 'string',
+            'description':
+                'Tag attached to the WorkingHours project, which is how that '
+                'ledger records the customer.',
+          },
+          'working_hours_tags': {
+            'type': 'array',
+            'items': {'type': 'string'},
+            'description': 'Tags put on every work unit written.',
+          },
+          'diarium_tag': {
+            'type': 'string',
+            'description': 'Tag put on the Diarium entry for that day.',
+          },
+          'color': {
+            'type': 'string',
+            'description': 'Colour as #AARRGGBB, the way WorkingHours holds it.',
+          },
+        },
+      },
+      run: (args) async {
+        final name = args['name']! as String;
+        final config = AiTrackerConfig.load(configPath);
+        final existing = config.linkFor(name);
+        final link = ProjectLink(
+          name: name,
+          workingHours: args['working_hours'] as String? ?? existing?.workingHours,
+          customer: args['customer'] as String? ?? existing?.customer,
+          workingHoursTags: args['working_hours_tags'] == null
+              ? existing?.workingHoursTags ?? const []
+              : [for (final tag in args['working_hours_tags']! as List) '$tag'],
+          diariumTag: args['diarium_tag'] as String? ?? existing?.diariumTag,
+          color: args['color'] as String? ?? existing?.color,
+        );
+        final links = [
+          for (final other in config.links)
+            if (other.name != name) other,
+          link,
+        ];
+        config.copyWith(links: links).save(configPath);
+        return {'ok': true, 'link': link.toJson()};
+      },
+    ),
+    McpTool(
+      name: 'rename_project',
+      description:
+          'Rename a project. The rules, the mapping and the hand edits always '
+          'move with it; WorkingHours and Diarium only when asked, which is how '
+          'the same work can carry a different name in each app.',
+      inputSchema: {
+        'type': 'object',
+        'required': ['from', 'to'],
+        'properties': {
+          'from': {'type': 'string', 'description': 'Current project name.'},
+          'to': {'type': 'string', 'description': 'New project name.'},
+          'in_working_hours': {
+            'type': 'boolean',
+            'description': 'Also rename the WorkingHours project. Default false.',
+          },
+          'in_diarium': {
+            'type': 'boolean',
+            'description': 'Also rename the linked Diarium tag. Default false.',
+          },
+          'dry_run': _dryRun,
+          'quit_app': _quitApp('each app'),
+        },
+      },
+      run: (args) async {
+        final overrides = OverrideStore.load(overridesPath);
+        final result = renameProject(
+          AiTrackerConfig.load(configPath),
+          from: args['from']! as String,
+          to: args['to']! as String,
+          inWorkingHours: args['in_working_hours'] as bool? ?? false,
+          inDiarium: args['in_diarium'] as bool? ?? false,
+          dryRun: args['dry_run'] as bool? ?? true,
+          quitApps: args['quit_app'] as bool? ?? false,
+          overrides: overrides,
+        );
+        if (result.applied) {
+          result.config.save(configPath);
+          overrides.save(overridesPath);
+        }
+        return {'ok': result.refusal == null, ...result.toJson()};
+      },
+    ),
+    McpTool(
+      name: 'sync_project_colors',
+      description:
+          'Write the mapped colours into WorkingHours so a project is drawn the '
+          'same in both apps. Previews by default.',
+      inputSchema: {
+        'type': 'object',
+        'properties': {'dry_run': _dryRun, 'quit_app': _quitApp('WorkingHours')},
+      },
+      run: (args) async {
+        final config = AiTrackerConfig.load(configPath);
+        final report = WorkingHoursSink(
+          config: config.workingHours,
+          links: config.links,
+        ).applyColors(
+          dryRun: args['dry_run'] as bool? ?? true,
+          quitApp: args['quit_app'] as bool? ?? false,
+        );
+        return {'ok': report.refusal == null, ...report.toJson()};
       },
     ),
     McpTool(
@@ -209,8 +384,8 @@ List<McpTool> buildTools({String? configPath, String? overridesPath}) {
       inputSchema: const {'type': 'object', 'properties': <String, Object?>{}},
       run: (args) async => {
         'ok': true,
-        'path': configPath ?? AiTrackingConfig.defaultPath(),
-        'config': AiTrackingConfig.load(configPath).toJson(),
+        'path': configPath ?? AiTrackerConfig.defaultPath(),
+        'config': AiTrackerConfig.load(configPath).toJson(),
       },
     ),
     McpTool(
@@ -243,7 +418,7 @@ List<McpTool> buildTools({String? configPath, String? overridesPath}) {
       },
       run: (args) async {
         final match = args['match']! as String;
-        final config = AiTrackingConfig.load(configPath);
+        final config = AiTrackerConfig.load(configPath);
         final rules = [
           for (final rule in config.rules)
             if (rule.match.toLowerCase() != match.toLowerCase()) rule,

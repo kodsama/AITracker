@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:aitracking_cli/aitracking_cli.dart';
-import 'package:aitracking_engine/aitracking_engine.dart';
+import 'package:aitracker_cli/aitracker_cli.dart';
+import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -11,7 +11,7 @@ void main() {
   late StringBuffer err;
 
   setUp(() {
-    temp = Directory.systemTemp.createTempSync('aitracking_cli');
+    temp = Directory.systemTemp.createTempSync('aitracker_cli');
     configPath = '${temp.path}/config.json';
     out = StringBuffer();
     err = StringBuffer();
@@ -29,7 +29,7 @@ void main() {
       '{"timestamp":"${at(13, 40)}","cwd":"/Users/me/Developer/mystery"}\n',
     );
 
-    AiTrackingConfig(
+    AiTrackerConfig(
       sources: ['${temp.path}/projects'],
       idleGap: const Duration(hours: 2),
       rules: const [
@@ -86,7 +86,7 @@ void main() {
   });
 
   test('a refusal is reported and sets the exit code', () async {
-    AiTrackingConfig.load(configPath)
+    AiTrackerConfig.load(configPath)
         .copyWith(
           workingHours: const WorkingHoursSinkConfig(
             databasePath: '/nonexistent/wh.db',
@@ -114,9 +114,9 @@ void main() {
 
   test('help explains itself, an unknown command complains', () async {
     expect(await cli(['help']), 0);
-    expect(out.toString(), contains('aitracking preview'));
+    expect(out.toString(), contains('aitracker preview'));
 
     expect(await cli(['nonsense']), 64);
-    expect(err.toString(), contains('aitracking sync'));
+    expect(err.toString(), contains('aitracker sync'));
   });
 }

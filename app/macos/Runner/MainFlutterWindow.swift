@@ -10,7 +10,7 @@ class MainFlutterWindow: NSWindow {
     self.center()
     // The hours table needs room for its columns.
     self.minSize = NSSize(width: 980, height: 620)
-    self.title = "AITracking"
+    self.title = "AITracker"
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 

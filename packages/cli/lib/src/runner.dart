@@ -1,20 +1,20 @@
 import 'dart:io';
 
-import 'package:aitracking_engine/aitracking_engine.dart';
+import 'package:aitracker_engine/aitracker_engine.dart';
 
 /// Usage text, printed for `help` and for anything unrecognised.
 const String usage = '''
-aitracking - file the hours you spend with an AI assistant
+aitracker - file the hours you spend with an AI assistant
 
-  aitracking preview [--days N] [--since DATE] [--until DATE]
+  aitracker preview [--days N] [--since DATE] [--until DATE]
       Show the blocks read out of the transcripts, and what is unmapped.
 
-  aitracking sync [--days N] [--since DATE] [--apply] [--quit-apps]
+  aitracker sync [--days N] [--since DATE] [--apply] [--quit-apps]
                   [--only workinghours,diarium,tabular]
       Preview the writes, or make them with --apply. A running WorkingHours or
       Diarium is a refusal unless --quit-apps lets the run close it.
 
-  aitracking config
+  aitracker config
       Print the configuration and where it lives.
 ''';
 
@@ -31,8 +31,8 @@ Future<int> run(
   final stdoutSink = out ?? stdout;
   final stderrSink = err ?? stderr;
   final command = args.isEmpty ? 'help' : args.first;
-  final config = AiTrackingConfig.load(configPath);
-  final tracking = AiTracking(
+  final config = AiTrackerConfig.load(configPath);
+  final tracking = AiTracker(
     config: config,
     overrides: OverrideStore.load(overridesPath),
   );
@@ -48,23 +48,15 @@ Future<int> run(
 
     case 'sync':
       final apply = args.contains('--apply');
-      final quit = args.contains('--quit-apps');
-      final only = _list(args, '--only');
-      final reports = <SyncReport>[
-        if (config.workingHours.enabled && _wanted(only, 'workinghours'))
-          WorkingHoursSink(
-            config: config.workingHours,
-            minBlock: config.minBlock,
-          ).sync(blocks, dryRun: !apply, quitApp: quit),
-        if (config.diarium.enabled && _wanted(only, 'diarium'))
-          DiariumSink(
-            config: config.diarium,
-          ).sync(blocks, dryRun: !apply, quitApp: quit),
-        if (config.tabular.enabled && _wanted(only, 'tabular'))
-          TabularSink(config: config.tabular).sync(blocks, dryRun: !apply),
-      ];
+      final reports = syncAll(
+        config,
+        blocks,
+        dryRun: !apply,
+        quitApps: args.contains('--quit-apps'),
+        only: _list(args, '--only').toSet(),
+      );
       if (reports.isEmpty) {
-        stderrSink.writeln('no sink is enabled; see aitracking config');
+        stderrSink.writeln('no sink is enabled; see aitracker config');
         return 1;
       }
       var failed = false;
@@ -75,7 +67,7 @@ Future<int> run(
       return failed ? 1 : 0;
 
     case 'config':
-      stdoutSink.writeln('config: ${configPath ?? AiTrackingConfig.defaultPath()}');
+      stdoutSink.writeln('config: ${configPath ?? AiTrackerConfig.defaultPath()}');
       stdoutSink.writeln('sources: ${config.sources.join(', ')}');
       stdoutSink.writeln(
         'idle gap: ${config.idleGap.inMinutes}m, '
@@ -150,9 +142,6 @@ void _report(StringSink out, SyncReport report, {required bool apply}) {
   }
   if (report.backup != null) out.writeln('  backup: ${report.backup}');
 }
-
-bool _wanted(List<String> only, String sink) =>
-    only.isEmpty || only.contains(sink);
 
 List<String> _list(List<String> args, String flag) {
   final value = _value(args, flag);

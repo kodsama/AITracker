@@ -97,7 +97,7 @@ class OverrideStore {
 
   /// Where the overrides live, next to the configuration file.
   static String defaultPath() =>
-      p.join(p.dirname(AiTrackingConfig.defaultPath()), 'overrides.json');
+      p.join(p.dirname(AiTrackerConfig.defaultPath()), 'overrides.json');
 
   /// Loads the store from [path], empty when the file does not exist.
   static OverrideStore load([String? path]) {

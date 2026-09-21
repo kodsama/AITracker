@@ -1,4 +1,4 @@
-import 'package:aitracking_engine/aitracking_engine.dart';
+import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:flutter/material.dart';
 
 import '../state/app_state.dart';

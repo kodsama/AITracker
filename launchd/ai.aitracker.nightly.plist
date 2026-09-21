@@ -3,10 +3,10 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>ai.aitracking.nightly</string>
+  <string>ai.aitracker.nightly</string>
   <key>ProgramArguments</key>
   <array>
-    <string>__HOME__/.local/bin/aitracking</string>
+    <string>__HOME__/.local/bin/aitracker</string>
     <string>sync</string>
     <string>--days</string>
     <string>3</string>
@@ -19,8 +19,8 @@
     <key>Minute</key><integer>30</integer>
   </dict>
   <key>StandardOutPath</key>
-  <string>__HOME__/Library/Logs/aitracking.log</string>
+  <string>__HOME__/Library/Logs/aitracker.log</string>
   <key>StandardErrorPath</key>
-  <string>__HOME__/Library/Logs/aitracking.log</string>
+  <string>__HOME__/Library/Logs/aitracker.log</string>
 </dict>
 </plist>

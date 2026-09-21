@@ -1,8 +1,8 @@
 import 'dart:io';
 
-import 'package:aitracking/main.dart';
-import 'package:aitracking/src/state/app_state.dart';
-import 'package:aitracking_engine/aitracking_engine.dart';
+import 'package:aitracker/main.dart';
+import 'package:aitracker/src/state/app_state.dart';
+import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -12,7 +12,7 @@ void main() {
   late String overridesPath;
 
   setUp(() {
-    temp = Directory.systemTemp.createTempSync('aitracking_app');
+    temp = Directory.systemTemp.createTempSync('aitracker_app');
     configPath = '${temp.path}/config.json';
     overridesPath = '${temp.path}/overrides.json';
 
@@ -32,13 +32,19 @@ void main() {
       '{"timestamp":"${at(13, 40)}","cwd":"/Users/me/Developer/mystery"}\n',
     );
 
-    AiTrackingConfig(
+    AiTrackerConfig(
       sources: ['${temp.path}/projects'],
       idleGap: const Duration(hours: 2),
       rules: const [
         ProjectRule(match: 'idbuddy', project: 'Byte Buddies - idbuddy'),
       ],
-      workingHours: const WorkingHoursSinkConfig(enabled: false),
+      // Point the stores at files that do not exist, so a test never reads the
+      // real WorkingHours or Diarium on this machine.
+      workingHours: WorkingHoursSinkConfig(
+        enabled: false,
+        databasePath: '${temp.path}/wh.db',
+      ),
+      diarium: DiariumSinkConfig(databasePath: '${temp.path}/diarium.db'),
       tabular: TabularSinkConfig(
         enabled: true,
         csvPath: '${temp.path}/hours.csv',
@@ -58,7 +64,7 @@ void main() {
       configPath: configPath,
       overridesPath: overridesPath,
     );
-    await tester.pumpWidget(AiTrackingApp(state: state));
+    await tester.pumpWidget(AiTrackerApp(state: state));
     await tester.pumpAndSettle();
     return state;
   }
@@ -102,7 +108,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField).last, 'Paperweight AI - x');
-    await tester.tap(find.widgetWithText(FilledButton, 'Apply'));
+    await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
 
     expect(state.byProject.keys, contains('Paperweight AI - x'));
@@ -125,7 +131,7 @@ void main() {
 
     expect(state.strays, isEmpty);
     expect(
-      AiTrackingConfig.load(configPath).rules.map((r) => r.project),
+      AiTrackerConfig.load(configPath).rules.map((r) => r.project),
       contains('Academie - AdBAI'),
     );
   });
@@ -140,7 +146,99 @@ void main() {
     await tester.tap(find.text('Export CSV and Excel'));
     await tester.pumpAndSettle();
 
-    expect(AiTrackingConfig.load(configPath).tabular.enabled, isFalse);
+    expect(AiTrackerConfig.load(configPath).tabular.enabled, isFalse);
+  });
+
+  testWidgets('the graphs screen draws the period and its legend', (
+    tester,
+  ) async {
+    await pump(tester);
+
+    await tester.tap(find.text('Graphs'));
+    await tester.pumpAndSettle();
+
+    // A month of days is drawn a week at a time.
+    expect(find.text('By week'), findsOneWidget);
+    expect(find.text('Calendar'), findsOneWidget);
+    // Legend names both the mapped project and the unmapped time.
+    expect(find.text('Byte Buddies - idbuddy'), findsWidgets);
+    expect(find.text('Unmapped'), findsOneWidget);
+    expect(find.text('Hover a day to see what it held.'), findsOneWidget);
+  });
+
+  testWidgets('the period picker switches the window', (tester) async {
+    final state = await pump(tester);
+
+    await tester.tap(find.text('Graphs'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Yesterday'));
+    await tester.pumpAndSettle();
+
+    expect(state.periodKind, PeriodKind.yesterday);
+    expect(state.blocks, isEmpty);
+    expect(find.text('Nothing in this window yet.'), findsOneWidget);
+  });
+
+  testWidgets('a project is mapped onto the two apps and keeps its colour', (
+    tester,
+  ) async {
+    final state = await pump(tester);
+
+    await tester.tap(find.text('Projects'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Map to the apps').first);
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'BB - idbuddy');
+    await tester.enterText(find.byType(TextField).at(1), 'Byte Buddies');
+    await tester.enterText(find.byType(TextField).at(2), 'idbuddy');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    final link = state.config.linkFor('Byte Buddies - idbuddy')!;
+    expect(link.workingHours, 'BB - idbuddy');
+    expect(link.customer, 'Byte Buddies');
+    expect(link.diariumTag, 'idbuddy');
+    expect(AiTrackerConfig.load(configPath).links, hasLength(1));
+  });
+
+  testWidgets('renaming here alone leaves the ledger name in the mapping', (
+    tester,
+  ) async {
+    final state = await pump(tester);
+
+    await tester.tap(find.text('Projects'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Rename').first);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'Byte Buddies - ID');
+    // Untick both apps: only this tool's name changes.
+    await tester.tap(find.text('Rename the WorkingHours project too'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Rename'));
+    await tester.pumpAndSettle();
+
+    expect(state.config.rules.single.project, 'Byte Buddies - ID');
+    expect(find.text('Byte Buddies - ID'), findsWidgets);
+  });
+
+  testWidgets('the project field suggests what exists and offers to create', (
+    tester,
+  ) async {
+    await pump(tester);
+
+    await tester.tap(find.text('Projects'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add rule'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).last, 'Byte');
+    await tester.pumpAndSettle();
+    expect(find.text('Byte Buddies - idbuddy'), findsWidgets);
+
+    await tester.enterText(find.byType(TextField).last, 'Brand new');
+    await tester.pumpAndSettle();
+    expect(find.text('Create "Brand new"'), findsOneWidget);
   });
 
   testWidgets('sync previews first, and only writes when told to', (

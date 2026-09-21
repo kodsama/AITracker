@@ -1,7 +1,8 @@
-import 'package:aitracking_engine/aitracking_engine.dart';
+import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:flutter/material.dart';
 
 import '../state/app_state.dart';
+import 'project_field.dart';
 
 /// Appears once something is selected: reassign, rename or strike out the lot.
 class BatchBar extends StatelessWidget {
@@ -142,29 +143,24 @@ class _PickerDialogState extends State<_PickerDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (widget.options.isNotEmpty) ...[
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final option in widget.options)
-                  ActionChip(
-                    label: Text(option),
-                    onPressed: () => Navigator.of(context).pop(option),
-                  ),
-              ],
+          if (widget.options.isEmpty)
+            TextField(
+              controller: _controller,
+              autofocus: true,
+              decoration: InputDecoration(
+                hintText: widget.hint,
+                border: const OutlineInputBorder(),
+              ),
+              onSubmitted: (value) => Navigator.of(context).pop(value),
+            )
+          else
+            ProjectField(
+              controller: _controller,
+              options: widget.options,
+              autofocus: true,
+              hint: widget.hint,
+              onSubmitted: (value) => Navigator.of(context).pop(value),
             ),
-            const SizedBox(height: 16),
-          ],
-          TextField(
-            controller: _controller,
-            autofocus: true,
-            decoration: InputDecoration(
-              hintText: widget.hint,
-              border: const OutlineInputBorder(),
-            ),
-            onSubmitted: (value) => Navigator.of(context).pop(value),
-          ),
         ],
       ),
     ),

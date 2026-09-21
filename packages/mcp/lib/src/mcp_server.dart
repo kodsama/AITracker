@@ -18,8 +18,8 @@ class McpServer {
   /// Creates a server exposing [tools].
   McpServer({
     required this.tools,
-    this.name = 'aitracking',
-    this.title = 'AITracking',
+    this.name = 'aitracker',
+    this.title = 'AITracker',
     this.version = kMcpDefaultVersion,
     this.protocolVersion = '2025-06-18',
   });

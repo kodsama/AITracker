@@ -1,8 +1,10 @@
-import 'package:aitracking_engine/aitracking_engine.dart';
+import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
 import '../state/app_state.dart';
+import '../widgets/project_field.dart';
+import '../widgets/project_mapping.dart';
 
 /// Where directories become projects, and where the unmapped ones get fixed.
 class RulesScreen extends StatelessWidget {
@@ -91,6 +93,8 @@ class RulesScreen extends StatelessWidget {
             ],
           ),
         ),
+        const SizedBox(height: 28),
+        ProjectMapping(state: state),
         if (strays.isNotEmpty) ...[
           const SizedBox(height: 28),
           Text('Unmapped', style: theme.textTheme.titleLarge),
@@ -155,7 +159,7 @@ class RulesScreen extends StatelessWidget {
   ) async {
     final edited = await showDialog<ProjectRule>(
       context: context,
-      builder: (context) => _RuleDialog(rule: rule),
+      builder: (context) => _RuleDialog(rule: rule, projects: state.knownProjects),
     );
     if (edited == null) return;
     final rules = [...state.config.rules];
@@ -169,9 +173,12 @@ class RulesScreen extends StatelessWidget {
 }
 
 class _RuleDialog extends StatefulWidget {
-  const _RuleDialog({this.rule});
+  const _RuleDialog({required this.projects, this.rule});
 
   final ProjectRule? rule;
+
+  /// Projects to suggest: what the ledger holds and what is already mapped.
+  final List<String> projects;
 
   @override
   State<_RuleDialog> createState() => _RuleDialogState();
@@ -210,13 +217,10 @@ class _RuleDialogState extends State<_RuleDialog> {
             ),
           ),
           const SizedBox(height: 16),
-          TextField(
+          ProjectField(
             controller: _project,
-            decoration: const InputDecoration(
-              labelText: 'Project',
-              hintText: 'Byte Buddies - idbuddy',
-              border: OutlineInputBorder(),
-            ),
+            options: widget.projects,
+            hint: 'Byte Buddies - idbuddy',
           ),
         ],
       ),

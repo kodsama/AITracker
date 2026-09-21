@@ -1,6 +1,6 @@
-name: aitracking_cli
+name: aitracker_cli
 description: >-
-  Command line front end for the AITracking engine: preview the blocks read out
+  Command line front end for the AITracker engine: preview the blocks read out
   of AI assistant transcripts, then write them to WorkingHours, Diarium, CSV or
   Excel. This is what a scheduled nightly run invokes.
 version: 0.1.0
@@ -11,11 +11,11 @@ environment:
   sdk: ^3.13.0
 
 dependencies:
-  aitracking_engine:
+  aitracker_engine:
 
 dev_dependencies:
   lints: ^6.1.0
   test: ^1.31.0
 
 executables:
-  aitracking:
+  aitracker:

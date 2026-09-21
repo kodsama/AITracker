@@ -18,12 +18,16 @@ class WorkingHoursSink {
   /// Creates the sink.
   const WorkingHoursSink({
     required this.config,
+    this.links = const [],
     this.minBlock = const Duration(minutes: 5),
     this.app = MacApp.workingHours,
   });
 
   /// Database path, description template and colour.
   final WorkingHoursSinkConfig config;
+
+  /// How each project is named and tagged in this ledger.
+  final List<ProjectLink> links;
 
   /// Remainders shorter than this, after cutting out time already logged, are
   /// dropped instead of written.
@@ -33,7 +37,15 @@ class WorkingHoursSink {
   final MacApp app;
 
   /// Resolved path of the store.
-  String get databasePath => AiTrackingConfig.resolveHome(config.databasePath);
+  String get databasePath => AiTrackerConfig.resolveHome(config.databasePath);
+
+  /// Whether the file being written is the one the app keeps open.
+  ///
+  /// The quit dance exists because WorkingHours holds its own store in memory
+  /// and writes it back. A database somewhere outside its container is nobody's
+  /// live store, so it is written straight away.
+  bool get appOwnsStore =>
+      ownsStore(databasePath, WorkingHoursSinkConfig.defaultDatabasePath);
 
   /// Writes [blocks], or previews the write when [dryRun] is set.
   ///
@@ -55,7 +67,7 @@ class WorkingHoursSink {
     }
 
     var relaunch = false;
-    if (!dryRun && app.isRunning) {
+    if (!dryRun && appOwnsStore && app.isRunning) {
       if (!quitApp) {
         return SyncReport(
           sink: 'workinghours',
@@ -111,7 +123,7 @@ class WorkingHoursSink {
       final projects = _projectIds(db);
       final missing = {
         for (final block in candidates)
-          if (!projects.containsKey(block.project)) block.project!,
+          if (!projects.containsKey(_ledgerName(block))) _ledgerName(block),
       };
       if (dryRun) {
         for (final name in missing) {
@@ -128,8 +140,12 @@ class WorkingHoursSink {
 
       final backup = candidates.isEmpty ? null : _backup(file);
       for (final name in missing) {
-        projects[name] = _createProject(db, name);
-        notes.add('created project "$name"');
+        final link = links.where((l) => l.workingHoursProject == name).firstOrNull;
+        projects[name] = _createProject(db, name, link?.customer, link?.color);
+        notes.add(
+          'created project "$name"'
+          '${link?.customer == null ? '' : ' for ${link!.customer}'}',
+        );
       }
       for (final block in candidates) {
         final start = toTicks(block.block.start);
@@ -138,8 +154,22 @@ class WorkingHoursSink {
           'insert into WorkUnits '
           '(ProjectId, Duration, End, Description, Details, Start) '
           'values (?, ?, ?, ?, ?, ?)',
-          [projects[block.project], end - start, end, block.description, marker, start],
+          [
+            projects[_ledgerName(block)],
+            end - start,
+            end,
+            block.description,
+            marker,
+            start,
+          ],
         );
+        final unit = db.lastInsertRowId;
+        for (final tag in _link(block)?.workingHoursTags ?? const <String>[]) {
+          db.execute('insert into WorkUnitTags (WorkUnitId, TagId) values (?, ?)', [
+            unit,
+            tagId(db, tag, config.color),
+          ]);
+        }
       }
       if (relaunch) app.launch();
       return SyncReport(
@@ -155,24 +185,124 @@ class WorkingHoursSink {
     }
   }
 
+  /// Pushes each linked project's colour into the ledger, so the two apps draw
+  /// the same project the same way.
+  SyncReport applyColors({bool dryRun = true, bool quitApp = false}) {
+    final file = File(databasePath);
+    if (!file.existsSync()) {
+      return SyncReport(
+        sink: 'workinghours',
+        applied: false,
+        refusal: 'no WorkingHours database at $databasePath',
+      );
+    }
+    final coloured = [
+      for (final link in links)
+        if (link.color != null && link.color!.isNotEmpty) link,
+    ];
+    if (coloured.isEmpty) {
+      return SyncReport(sink: 'workinghours', applied: !dryRun);
+    }
+
+    var relaunch = false;
+    if (!dryRun && appOwnsStore && app.isRunning) {
+      if (!quitApp) {
+        return SyncReport(
+          sink: 'workinghours',
+          applied: false,
+          refusal: 'WorkingHours is running; quit it, or sync with quit_app',
+        );
+      }
+      if (!app.quit()) {
+        return SyncReport(
+          sink: 'workinghours',
+          applied: false,
+          refusal: 'WorkingHours did not quit within 20s',
+        );
+      }
+      relaunch = true;
+    }
+
+    final db = sqlite3.open(
+      databasePath,
+      mode: dryRun ? OpenMode.readOnly : OpenMode.readWrite,
+    );
+    final notes = <String>[];
+    try {
+      String? backup;
+      for (final link in coloured) {
+        if (dryRun) {
+          notes.add('would colour "${link.workingHoursProject}" ${link.color}');
+          continue;
+        }
+        backup ??= _backup(file);
+        db.execute('update Projects set Color = ? where Name = ?', [
+          link.color,
+          link.workingHoursProject,
+        ]);
+        notes.add(
+          db.updatedRows == 0
+              ? 'no project "${link.workingHoursProject}" to colour'
+              : 'coloured "${link.workingHoursProject}" ${link.color}',
+        );
+      }
+      if (relaunch) app.launch();
+      return SyncReport(
+        sink: 'workinghours',
+        applied: !dryRun,
+        notes: notes,
+        backup: backup,
+      );
+    } finally {
+      db.close();
+    }
+  }
+
   /// Written into each row's `Details` so a later run, or a human, can tell
   /// which units this tool owns.
-  static const String marker = 'aitracking';
+  static const String marker = 'aitracker';
+
+  /// The link for [block], if its project has been mapped.
+  ProjectLink? _link(TrackedBlock block) =>
+      links.where((link) => link.name == block.project).firstOrNull;
+
+  /// The name this block is filed under in the ledger, which is the mapped one
+  /// when the project has a link.
+  String _ledgerName(TrackedBlock block) =>
+      _link(block)?.workingHoursProject ?? block.project!;
 
   Map<String, int> _projectIds(Database db) => {
     for (final row in db.select('select ProjectId, Name from Projects'))
       row['Name']! as String: row['ProjectId']! as int,
   };
 
-  int _createProject(Database db, String name) {
+  int _createProject(
+    Database db,
+    String name,
+    String? customer,
+    String? color,
+  ) {
     final sort = db.select('select coalesce(max(SortIndex), 0) + 1 as next from Projects');
     db.execute(
       'insert into Projects '
       '(Name, Icon, Color, HourlyRate, Currency, Details, SortIndex, Hidden, IsLumpSum) '
       'values (?, null, ?, 0.0, ?, ?, ?, 0, 0)',
-      [name, config.color, _currency(db), marker, sort.first['next']],
+      [
+        name,
+        color ?? config.color,
+        _currency(db),
+        marker,
+        sort.first['next'],
+      ],
     );
-    return db.lastInsertRowId;
+    final project = db.lastInsertRowId;
+    if (customer != null && customer.isNotEmpty) {
+      db.execute('insert into ProjectTags (ProjectId, TagId) values (?, ?)', [
+        project,
+        tagId(db, customer, config.color),
+      ]);
+    }
+    return project;
   }
 
   /// The currency the other projects use, so a new one matches the ledger.
@@ -185,12 +315,27 @@ class WorkingHoursSink {
     return '${rows.first['Currency'] ?? ''}';
   }
 
+  /// Id of the tag with [value], created with [color] when the ledger has no
+  /// such tag yet.
+  static int tagId(Database db, String value, String color) {
+    final existing = db.select('select TagId from Tags where Value = ?', [value]);
+    if (existing.isNotEmpty) return existing.first['TagId']! as int;
+    final sort = db.select('select coalesce(max(SortIndex), 0) + 1 as next from Tags');
+    db.execute(
+      'insert into Tags '
+      '(Value, Type, SortIndex, AutoAssign, Details, Icon, Color, AdjustmentValue, Hidden) '
+      'values (?, 0, ?, 0, ?, null, ?, 0.0, 0)',
+      [value, sort.first['next'], marker, color],
+    );
+    return db.lastInsertRowId;
+  }
+
   String _backup(File file) {
     final stamp = DateTime.now()
         .toIso8601String()
         .replaceAll(RegExp('[^0-9]'), '')
         .substring(0, 14);
-    final path = '${file.parent.path}/WorkingHours_backup_aitracking_$stamp.sqlite';
+    final path = '${file.parent.path}/WorkingHours_backup_aitracker_$stamp.sqlite';
     file.copySync(path);
     return path;
   }

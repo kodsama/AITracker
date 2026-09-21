@@ -1,35 +1,11 @@
 import 'dart:io';
 
-import 'package:aitracking_engine/aitracking_engine.dart';
-import 'package:aitracking_mcp/aitracking_mcp.dart';
+import 'package:aitracker_engine/aitracker_engine.dart';
+import 'package:aitracker_mcp/aitracker_mcp.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' show Brightness, Color;
 
-/// How far back the window reaches. Null days means everything on disk.
-class Range {
-  /// Creates a range.
-  const Range(this.label, this.days);
-
-  /// Text on the chip.
-  final String label;
-
-  /// Days back from today, null for everything.
-  final int? days;
-
-  /// The ranges the header offers.
-  static const List<Range> all = [
-    Range('7 days', 7),
-    Range('30 days', 30),
-    Range('90 days', 90),
-    Range('Everything', null),
-  ];
-
-  /// Start of the window, or null.
-  DateTime? get since {
-    if (days == null) return null;
-    final now = DateTime.now();
-    return DateTime(now.year, now.month, now.day).subtract(Duration(days: days!));
-  }
-}
+import '../theme.dart';
 
 /// Everything the windows read and write: the configuration, the blocks read
 /// out of the transcripts, what is selected, and the MCP endpoint.
@@ -43,16 +19,19 @@ class AppState extends ChangeNotifier {
   /// Where the hand edits are read from, null for the default location.
   final String? overridesPath;
 
-  AiTrackingConfig _config = const AiTrackingConfig(sources: []);
+  AiTrackerConfig _config = const AiTrackerConfig(sources: []);
   OverrideStore _overrides = OverrideStore();
+  Catalog _catalog = const Catalog();
   List<TrackedBlock> _blocks = const [];
   final Set<String> _selected = {};
-  Range _range = Range.all[1];
+  PeriodKind _periodKind = PeriodKind.thisMonth;
+  DateTime? _customStart;
+  DateTime? _customEnd;
   bool _loading = true;
   ServerSocket? _mcp;
 
   /// Current configuration.
-  AiTrackingConfig get config => _config;
+  AiTrackerConfig get config => _config;
 
   /// Blocks in the window, newest first.
   List<TrackedBlock> get blocks => _blocks;
@@ -60,8 +39,18 @@ class AppState extends ChangeNotifier {
   /// Keys of the selected blocks.
   Set<String> get selected => _selected;
 
-  /// Window the header is showing.
-  Range get range => _range;
+  /// Window the screens are showing.
+  Period get period => periodFor(
+    _periodKind,
+    start: _customStart,
+    end: _customEnd,
+  );
+
+  /// Which named window is selected.
+  PeriodKind get periodKind => _periodKind;
+
+  /// What the two apps already hold: projects, tags, customers, journal tags.
+  Catalog get catalog => _catalog;
 
   /// Whether a scan is in flight.
   bool get loading => _loading;
@@ -75,13 +64,17 @@ class AppState extends ChangeNotifier {
   /// Directories in the window that no rule covers.
   Map<String, Duration> get strays => unmapped(_blocks);
 
-  /// Every project name the configuration or a hand edit mentions.
+  /// Every project name in play: the rules, the mapping, the hand edits and
+  /// what WorkingHours already holds.
   List<String> get knownProjects {
     final names = <String>{
       for (final rule in _config.rules) rule.project,
+      for (final link in _config.links) link.name,
       for (final override in _overrides.entries.values)
         if (override.project != null) override.project!,
       if (_config.fallbackProject != null) _config.fallbackProject!,
+      for (final project in _catalog.projects)
+        if (!project.hidden) project.name,
     };
     return names.toList()..sort();
   }
@@ -95,8 +88,9 @@ class AppState extends ChangeNotifier {
 
   /// Reads the configuration and scans the transcripts.
   Future<void> load() async {
-    _config = AiTrackingConfig.load(configPath);
+    _config = AiTrackerConfig.load(configPath);
     _overrides = OverrideStore.load(overridesPath);
+    _catalog = Catalog.read(_config);
     if (_config.mcpEnabled && _mcp == null) await startMcp();
     await refresh();
   }
@@ -105,17 +99,26 @@ class AppState extends ChangeNotifier {
   Future<void> refresh() async {
     _loading = true;
     notifyListeners();
-    final tracking = AiTracking(config: _config, overrides: _overrides);
-    final found = tracking.blocks(since: _range.since);
+    final tracking = AiTracker(config: _config, overrides: _overrides);
+    final window = period;
+    final found = tracking.blocks(since: window.start, until: window.end);
     _blocks = found.reversed.toList();
     _selected.removeWhere((key) => !_blocks.any((b) => b.key == key));
     _loading = false;
     notifyListeners();
   }
 
-  /// Switches the window and rescans.
-  Future<void> setRange(Range range) async {
-    _range = range;
+  /// Switches the window and rescans. [start] and [end] apply to a custom one.
+  Future<void> setPeriod(
+    PeriodKind kind, {
+    DateTime? start,
+    DateTime? end,
+  }) async {
+    _periodKind = kind;
+    if (kind == PeriodKind.custom) {
+      _customStart = start ?? _customStart;
+      _customEnd = end ?? _customEnd;
+    }
     await refresh();
   }
 
@@ -155,10 +158,76 @@ class AppState extends ChangeNotifier {
     await refresh();
   }
 
+  /// Colour a project is drawn in: the one it was given, else the one the
+  /// ledger draws it in, else its slot in the chart palette.
+  ///
+  /// The slot follows the project name, not its rank in the current window, so
+  /// a filter that drops a project never repaints the others.
+  Color colorFor(String project, Brightness brightness) {
+    final chosen = parseArgb(_config.linkFor(project)?.color);
+    if (chosen != null) return chosen;
+    final link = _config.linkFor(project);
+    final ledgerName = link?.workingHoursProject ?? project;
+    for (final entry in _catalog.projects) {
+      if (entry.name != ledgerName) continue;
+      final colour = parseArgb(entry.color);
+      if (colour != null) return colour;
+    }
+    if (project == unmappedLabel) return otherSeries(brightness);
+    return seriesColor(knownProjects.indexOf(project), brightness);
+  }
+
+  /// Adds or replaces the mapping for a project.
+  Future<void> saveLink(ProjectLink link) async {
+    final links = [
+      for (final other in _config.links)
+        if (other.name != link.name) other,
+      link,
+    ];
+    await save(_config.copyWith(links: links));
+  }
+
+  /// Renames a project, carrying the name into the apps that were asked for.
+  Future<RenameResult> rename(
+    String from,
+    String to, {
+    bool inWorkingHours = false,
+    bool inDiarium = false,
+    bool quitApps = true,
+  }) async {
+    final result = renameProject(
+      _config,
+      from: from,
+      to: to,
+      inWorkingHours: inWorkingHours,
+      inDiarium: inDiarium,
+      dryRun: false,
+      quitApps: quitApps,
+      overrides: _overrides,
+    );
+    if (result.applied) {
+      _overrides.save(overridesPath);
+      await save(result.config);
+    }
+    return result;
+  }
+
+  /// Pushes the mapped colours into WorkingHours.
+  Future<SyncReport> pushColors({bool quitApps = true}) async {
+    final report = WorkingHoursSink(
+      config: _config.workingHours,
+      links: _config.links,
+    ).applyColors(dryRun: false, quitApp: quitApps);
+    _catalog = Catalog.read(_config);
+    notifyListeners();
+    return report;
+  }
+
   /// Saves [config] and rescans with it.
-  Future<void> save(AiTrackingConfig config) async {
+  Future<void> save(AiTrackerConfig config) async {
     _config = config;
     config.save(configPath);
+    _catalog = Catalog.read(config);
     if (config.mcpEnabled && _mcp == null) {
       await startMcp();
     } else if (!config.mcpEnabled && _mcp != null) {
@@ -172,19 +241,12 @@ class AppState extends ChangeNotifier {
     required bool apply,
     bool quitApps = false,
   }) async {
-    final reports = <SyncReport>[
-      if (_config.workingHours.enabled)
-        WorkingHoursSink(
-          config: _config.workingHours,
-          minBlock: _config.minBlock,
-        ).sync(_blocks, dryRun: !apply, quitApp: quitApps),
-      if (_config.diarium.enabled)
-        DiariumSink(
-          config: _config.diarium,
-        ).sync(_blocks, dryRun: !apply, quitApp: quitApps),
-      if (_config.tabular.enabled)
-        TabularSink(config: _config.tabular).sync(_blocks, dryRun: !apply),
-    ];
+    final reports = syncAll(
+      _config,
+      _blocks,
+      dryRun: !apply,
+      quitApps: quitApps,
+    );
     if (apply) await refresh();
     return reports;
   }

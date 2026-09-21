@@ -1,4 +1,4 @@
-import 'package:aitracking_engine/aitracking_engine.dart';
+import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:flutter/material.dart';
 
 import '../state/app_state.dart';
@@ -90,7 +90,7 @@ class SettingsScreen extends StatelessWidget {
                 ),
                 title: const Text('File work units'),
                 subtitle: Text(
-                  AiTrackingConfig.resolveHome(config.workingHours.databasePath),
+                  AiTrackerConfig.resolveHome(config.workingHours.databasePath),
                 ),
               ),
               _Field(
@@ -155,8 +155,8 @@ class SettingsScreen extends StatelessWidget {
                 ),
                 title: const Text('Export CSV and Excel'),
                 subtitle: Text(
-                  '${AiTrackingConfig.resolveHome(config.tabular.csvPath)}\n'
-                  '${AiTrackingConfig.resolveHome(config.tabular.xlsxPath)}',
+                  '${AiTrackerConfig.resolveHome(config.tabular.csvPath)}\n'
+                  '${AiTrackerConfig.resolveHome(config.tabular.xlsxPath)}',
                 ),
               ),
             ],
@@ -168,7 +168,7 @@ class SettingsScreen extends StatelessWidget {
           subtitle:
               'Serve the engine to an assistant over JSON-RPC while this app '
               'is open. The same tools are available over stdio through the '
-              'aitracking_mcp binary.',
+              'aitracker_mcp binary.',
           child: Column(
             children: [
               SwitchListTile(
@@ -196,7 +196,7 @@ class SettingsScreen extends StatelessWidget {
 
         const SizedBox(height: 12),
         Text(
-          'Configuration: ${state.configPath ?? AiTrackingConfig.defaultPath()}',
+          'Configuration: ${state.configPath ?? AiTrackerConfig.defaultPath()}',
           style: theme.textTheme.bodySmall?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
           ),

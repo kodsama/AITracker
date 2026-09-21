@@ -6,11 +6,15 @@
 library;
 
 export 'src/activity.dart';
+export 'src/catalog.dart';
 export 'src/config.dart';
 export 'src/mac_apps.dart';
 export 'src/overrides.dart';
+export 'src/periods.dart';
+export 'src/rename.dart';
 export 'src/sinks/diarium.dart';
 export 'src/sinks/report.dart';
+export 'src/sinks/sync.dart';
 export 'src/sinks/tabular.dart';
 export 'src/sinks/workinghours.dart';
 export 'src/ticks.dart';

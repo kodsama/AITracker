@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:aitracking_engine/aitracking_engine.dart';
+import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:test/test.dart';
 
 ActivityEvent event(String time, String directory, [String session = 's1']) =>
@@ -104,7 +104,7 @@ void main() {
   group('TranscriptScanner', () {
     late Directory temp;
 
-    setUp(() => temp = Directory.systemTemp.createTempSync('aitracking'));
+    setUp(() => temp = Directory.systemTemp.createTempSync('aitracker'));
     tearDown(() => temp.deleteSync(recursive: true));
 
     File transcript(String project, String name, String contents) {
@@ -181,9 +181,9 @@ void main() {
     });
   });
 
-  group('AiTrackingConfig', () {
+  group('AiTrackerConfig', () {
     test('matches the first rule and falls back when none do', () {
-      const config = AiTrackingConfig(
+      const config = AiTrackerConfig(
         sources: [],
         rules: [
           ProjectRule(match: 'byte-buddies-idbuddy', project: 'BB - idbuddy'),
@@ -212,14 +212,14 @@ void main() {
     });
 
     test('leaves unmatched directories unassigned without a fallback', () {
-      const config = AiTrackingConfig(sources: []);
+      const config = AiTrackerConfig(sources: []);
       expect(config.projectFor('/anywhere'), isNull);
     });
 
     test('round trips through JSON', () {
-      final temp = Directory.systemTemp.createTempSync('aitracking');
+      final temp = Directory.systemTemp.createTempSync('aitracker');
       addTearDown(() => temp.deleteSync(recursive: true));
-      const config = AiTrackingConfig(
+      const config = AiTrackerConfig(
         sources: ['/tmp/projects'],
         idleGap: Duration(minutes: 15),
         minBlock: Duration(minutes: 3),
@@ -232,7 +232,7 @@ void main() {
       final path = '${temp.path}/config.json';
 
       config.save(path);
-      final loaded = AiTrackingConfig.load(path);
+      final loaded = AiTrackerConfig.load(path);
 
       expect(loaded.sources, ['/tmp/projects']);
       expect(loaded.idleGap, const Duration(minutes: 15));
@@ -246,12 +246,12 @@ void main() {
     });
 
     test('falls back to the discovered sources for a missing file', () {
-      final config = AiTrackingConfig.load('/nonexistent/config.json');
-      expect(config.sources, AiTrackingConfig.discoverSources());
+      final config = AiTrackerConfig.load('/nonexistent/config.json');
+      expect(config.sources, AiTrackerConfig.discoverSources());
     });
   });
 
-  group('AiTracking', () {
+  group('AiTracker', () {
     WorkBlock block({String directory = '/Users/me/Developer/idbuddy'}) =>
         WorkBlock(
           directory: directory,
@@ -261,8 +261,8 @@ void main() {
         );
 
     test('templates the description from the block', () {
-      final tracking = AiTracking(
-        config: const AiTrackingConfig(
+      final tracking = AiTracker(
+        config: const AiTrackerConfig(
           sources: [],
           rules: [ProjectRule(match: 'idbuddy', project: 'Byte Buddies - idbuddy')],
           workingHours: WorkingHoursSinkConfig(
@@ -289,8 +289,8 @@ void main() {
             end: DateTime(2026, 9, 1, 9, 30),
           ),
         );
-      final tracking = AiTracking(
-        config: const AiTrackingConfig(sources: []),
+      final tracking = AiTracker(
+        config: const AiTrackerConfig(sources: []),
         overrides: overrides,
       );
 
@@ -307,8 +307,8 @@ void main() {
           OverrideStore.keyFor('/Users/me/Developer/idbuddy', DateTime(2026, 9, 1, 9)),
           const BlockOverride(excluded: true),
         );
-      final tracking = AiTracking(
-        config: const AiTrackingConfig(
+      final tracking = AiTracker(
+        config: const AiTrackerConfig(
           sources: [],
           rules: [ProjectRule(match: 'idbuddy', project: 'BB - idbuddy')],
         ),
@@ -323,8 +323,8 @@ void main() {
     });
 
     test('summarises by project, by day and by what is unmapped', () {
-      final tracking = AiTracking(
-        config: const AiTrackingConfig(
+      final tracking = AiTracker(
+        config: const AiTrackerConfig(
           sources: [],
           rules: [ProjectRule(match: 'idbuddy', project: 'BB - idbuddy')],
         ),
@@ -348,7 +348,7 @@ void main() {
     });
 
     test('reads blocks from transcripts within a window', () {
-      final temp = Directory.systemTemp.createTempSync('aitracking');
+      final temp = Directory.systemTemp.createTempSync('aitracker');
       addTearDown(() => temp.deleteSync(recursive: true));
       final dir = Directory('${temp.path}/projects/p')..createSync(recursive: true);
       final start = DateTime(2026, 9, 1, 9).toUtc().toIso8601String();
@@ -358,8 +358,8 @@ void main() {
         '{"timestamp":"$end","cwd":"/Users/me/Developer/idbuddy"}\n',
       );
 
-      final tracking = AiTracking(
-        config: AiTrackingConfig(
+      final tracking = AiTracker(
+        config: AiTrackerConfig(
           sources: ['${temp.path}/projects'],
           idleGap: const Duration(hours: 1),
           rules: const [ProjectRule(match: 'idbuddy', project: 'BB - idbuddy')],

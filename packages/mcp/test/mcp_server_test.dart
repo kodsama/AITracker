@@ -1,10 +1,25 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:aitracking_engine/aitracking_engine.dart';
-import 'package:aitracking_mcp/aitracking_mcp.dart';
+import 'package:aitracker_engine/aitracker_engine.dart';
+import 'package:aitracker_mcp/aitracker_mcp.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+/// The Diarium tables this tool touches: the entry, its tags, and the tag list.
+void _diariumSchema(String path) {
+  sqlite3.open(path)
+    ..execute('''
+      create table Entries (DiaryEntryId bigint primary key not null,
+        Heading varchar not null, Text varchar not null, Rating integer not null,
+        Latitude float not null, Longitude float not null);
+      create table EntryTags (DiaryEntryId bigint not null,
+        DiaryTagId integer not null, TrackingValue varchar);
+      create table Tags (DiaryTagId integer primary key autoincrement not null,
+        Value varchar not null, Type integer not null, Color varchar, Icon varchar);
+    ''')
+    ..close();
+}
 
 void main() {
   late Directory temp;
@@ -13,7 +28,7 @@ void main() {
   late McpServer server;
 
   setUp(() {
-    temp = Directory.systemTemp.createTempSync('aitracking_mcp');
+    temp = Directory.systemTemp.createTempSync('aitracker_mcp');
     configPath = '${temp.path}/config.json';
     overridesPath = '${temp.path}/overrides.json';
 
@@ -31,7 +46,7 @@ void main() {
       '{"timestamp":"${at(11, 40)}","cwd":"/Users/me/Developer/mystery"}\n',
     );
 
-    AiTrackingConfig(
+    AiTrackerConfig(
       sources: ['${temp.path}/projects'],
       idleGap: const Duration(hours: 1),
       rules: const [
@@ -71,7 +86,7 @@ void main() {
       final info =
           ((initialize!['result']! as Map)['serverInfo']! as Map)
               .cast<String, Object?>();
-      expect(info['name'], 'aitracking');
+      expect(info['name'], 'aitracker');
 
       final list = await server.handle({
         'jsonrpc': '2.0',
@@ -169,7 +184,7 @@ void main() {
         (result['by_project']! as Map).keys,
         containsAll(['Byte Buddies - idbuddy', 'Paperweight AI - mystery']),
       );
-      expect(AiTrackingConfig.load(configPath).rules.first.match, 'mystery');
+      expect(AiTrackerConfig.load(configPath).rules.first.match, 'mystery');
     });
 
     test('get_config reports where the configuration lives', () async {
@@ -213,9 +228,115 @@ void main() {
       expect(after['description'], 'exploratory work');
     });
 
+    test('list_catalog reports what the apps already hold', () async {
+      final wh = '${temp.path}/wh.db';
+      sqlite3.open(wh)
+        ..execute('''
+          create table Projects (ProjectId integer primary key autoincrement not null,
+            Name varchar not null, Icon varchar, Color varchar not null,
+            HourlyRate float not null, Currency varchar not null, Details varchar not null,
+            SortIndex integer not null, Hidden integer not null, IsLumpSum integer not null);
+          create table Tags (TagId integer primary key autoincrement not null,
+            Value varchar not null, Type integer not null, SortIndex integer not null,
+            AutoAssign integer not null, Details varchar not null, Icon varchar,
+            Color varchar not null, AdjustmentValue float not null, Hidden integer not null);
+          create table ProjectTags (ProjectId integer not null, TagId integer not null);
+        ''')
+        ..execute(
+          "insert into Projects (Name, Color, HourlyRate, Currency, Details, SortIndex, Hidden, IsLumpSum) "
+          "values ('RiACT - Code', '#FF69BD0D', 0.0, 'kr', '', 1, 0, 0)",
+        )
+        ..execute(
+          "insert into Tags (Value, Type, SortIndex, AutoAssign, Details, Color, AdjustmentValue, Hidden) "
+          "values ('RiACT', 0, 1, 0, '', '#FF02F115', 0.0, 0)",
+        )
+        ..execute('insert into ProjectTags values (1, 1)')
+        ..close();
+      AiTrackerConfig.load(configPath)
+          .copyWith(workingHours: WorkingHoursSinkConfig(databasePath: wh))
+          .save(configPath);
+
+      final result = await call('list_catalog');
+
+      expect((result['projects']! as List).single, {
+        'name': 'RiACT - Code',
+        'hidden': false,
+        'color': '#FF69BD0D',
+        'customer': 'RiACT',
+      });
+      expect(result['customers'], ['RiACT']);
+    });
+
+    test('set_project_link maps a project across the apps and keeps what it is '
+        'not told', () async {
+      await call('set_project_link', {
+        'name': 'Byte Buddies - idbuddy',
+        'working_hours': 'BB - idbuddy',
+        'customer': 'Byte Buddies',
+        'working_hours_tags': ['Programming'],
+        'diarium_tag': 'idbuddy',
+        'color': '#FF34D399',
+      });
+      await call('set_project_link', {
+        'name': 'Byte Buddies - idbuddy',
+        'color': '#FF6C4AB6',
+      });
+
+      final link = AiTrackerConfig.load(configPath).linkFor('Byte Buddies - idbuddy')!;
+      expect(link.workingHours, 'BB - idbuddy');
+      expect(link.customer, 'Byte Buddies');
+      expect(link.workingHoursTags, ['Programming']);
+      expect(link.diariumTag, 'idbuddy');
+      expect(link.color, '#FF6C4AB6');
+    });
+
+    test('rename_project moves the rules, and the ledger when asked', () async {
+      final wh = '${temp.path}/wh.db';
+      sqlite3.open(wh)
+        ..execute(
+          'create table Projects (ProjectId integer primary key autoincrement not null, '
+          'Name varchar not null, Icon varchar, Color varchar not null, '
+          'HourlyRate float not null, Currency varchar not null, Details varchar not null, '
+          'SortIndex integer not null, Hidden integer not null, IsLumpSum integer not null)',
+        )
+        ..execute(
+          "insert into Projects (Name, Color, HourlyRate, Currency, Details, SortIndex, Hidden, IsLumpSum) "
+          "values ('Byte Buddies - idbuddy', '#FF000000', 0.0, 'kr', '', 1, 0, 0)",
+        )
+        ..close();
+      AiTrackerConfig.load(configPath)
+          .copyWith(workingHours: WorkingHoursSinkConfig(databasePath: wh))
+          .save(configPath);
+
+      final preview = await call('rename_project', {
+        'from': 'Byte Buddies - idbuddy',
+        'to': 'Byte Buddies - ID Buddy',
+        'in_working_hours': true,
+      });
+      expect(preview['applied'], isFalse);
+
+      await call('rename_project', {
+        'from': 'Byte Buddies - idbuddy',
+        'to': 'Byte Buddies - ID Buddy',
+        'in_working_hours': true,
+        'dry_run': false,
+      });
+
+      expect(
+        AiTrackerConfig.load(configPath).rules.single.project,
+        'Byte Buddies - ID Buddy',
+      );
+      final db = sqlite3.open(wh);
+      expect(
+        db.select('select Name from Projects').single['Name'],
+        'Byte Buddies - ID Buddy',
+      );
+      db.close();
+    });
+
     test('export_spreadsheet previews before it writes', () async {
       final csv = '${temp.path}/hours.csv';
-      AiTrackingConfig.load(configPath)
+      AiTrackerConfig.load(configPath)
           .copyWith(
             tabular: TabularSinkConfig(
               csvPath: csv,
@@ -233,8 +354,87 @@ void main() {
       expect(File(csv).readAsLinesSync(), hasLength(3));
     });
 
+    test('sync_all files both stores in one call', () async {
+      final workingHours = '${temp.path}/wh.db';
+      sqlite3.open(workingHours)
+        ..execute('''
+          create table Settings (SettingId varchar primary key not null, Value varchar);
+          create table Projects (
+            ProjectId integer primary key autoincrement not null, Name varchar not null,
+            Icon varchar, Color varchar not null, HourlyRate float not null,
+            Currency varchar not null, Details varchar not null, SortIndex integer not null,
+            Hidden integer not null, IsLumpSum integer not null);
+          create table WorkUnits (
+            WorkUnitId integer primary key autoincrement not null, ProjectId integer not null,
+            Duration bigint not null, End bigint not null, Description varchar not null,
+            Details varchar not null, Start bigint not null);
+          create table Tags (
+            TagId integer primary key autoincrement not null, Value varchar not null,
+            Type integer not null, SortIndex integer not null, AutoAssign integer not null,
+            Details varchar not null, Icon varchar, Color varchar not null,
+            AdjustmentValue float not null, Hidden integer not null);
+          create table WorkUnitTags (
+            WorkUnitId integer not null, TagId integer not null, CustomValue varchar);
+          create table ProjectTags (ProjectId integer not null, TagId integer not null);
+        ''')
+        ..execute("insert into Settings values ('WatchStarted', '')")
+        ..close();
+      final diarium = '${temp.path}/diarium.db';
+      _diariumSchema(diarium);
+      AiTrackerConfig.load(configPath)
+          .copyWith(
+            workingHours: WorkingHoursSinkConfig(databasePath: workingHours),
+            diarium: DiariumSinkConfig(enabled: true, databasePath: diarium),
+            tabular: TabularSinkConfig(
+              enabled: true,
+              csvPath: '${temp.path}/hours.csv',
+              xlsxPath: '${temp.path}/hours.xlsx',
+            ),
+          )
+          .save(configPath);
+
+      final preview = await call('sync_all');
+      expect(preview['ok'], isTrue);
+      expect((preview['sinks']! as List), hasLength(3));
+
+      final written = await call('sync_all', {'dry_run': false});
+
+      final sinks = (written['sinks']! as List).cast<Map<String, Object?>>();
+      expect(sinks.map((s) => s['sink']), [
+        'workinghours',
+        'diarium',
+        'tabular',
+      ]);
+      expect(sinks.every((s) => s['applied'] == true), isTrue);
+      final wh = sqlite3.open(workingHours);
+      expect(wh.select('select * from WorkUnits'), hasLength(1));
+      wh.close();
+      final journal = sqlite3.open(diarium);
+      expect(journal.select('select * from Entries'), hasLength(1));
+      journal.close();
+      expect(File('${temp.path}/hours.csv').existsSync(), isTrue);
+    });
+
+    test('sync_all can be narrowed to one sink', () async {
+      AiTrackerConfig.load(configPath)
+          .copyWith(
+            tabular: TabularSinkConfig(
+              enabled: true,
+              csvPath: '${temp.path}/hours.csv',
+              xlsxPath: '${temp.path}/hours.xlsx',
+            ),
+          )
+          .save(configPath);
+
+      final result = await call('sync_all', {
+        'only': ['tabular'],
+      });
+
+      expect((result['sinks']! as List), hasLength(1));
+    });
+
     test('sync_workinghours refuses a store that is not there', () async {
-      AiTrackingConfig.load(configPath)
+      AiTrackerConfig.load(configPath)
           .copyWith(
             workingHours: const WorkingHoursSinkConfig(
               databasePath: '/nonexistent/wh.db',
@@ -250,15 +450,8 @@ void main() {
 
     test('sync_diarium previews the day it would journal', () async {
       final path = '${temp.path}/diarium.db';
-      sqlite3.open(path)
-        ..execute(
-          'create table Entries (DiaryEntryId bigint primary key not null, '
-          'Heading varchar not null, Text varchar not null, '
-          'Rating integer not null, Latitude float not null, '
-          'Longitude float not null)',
-        )
-        ..close();
-      AiTrackingConfig.load(configPath)
+      _diariumSchema(path);
+      AiTrackerConfig.load(configPath)
           .copyWith(diarium: DiariumSinkConfig(databasePath: path))
           .save(configPath);
 

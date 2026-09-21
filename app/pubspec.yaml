@@ -1,6 +1,6 @@
-name: aitracking
+name: aitracker
 description: >-
-  AITracking - see the hours you spend with an AI assistant, and file them into
+  AITracker - see the hours you spend with an AI assistant, and file them into
   WorkingHours, Diarium or a spreadsheet.
 publish_to: none
 version: 0.1.0+1
@@ -12,8 +12,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  aitracking_engine:
-  aitracking_mcp:
+  aitracker_engine:
+  aitracker_mcp:
   cupertino_icons: ^1.0.8
   path: ^1.9.1
 

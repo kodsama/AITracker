@@ -45,8 +45,8 @@ class TabularSink {
         applied: false,
         written: rows,
         notes: [
-          'would write ${rows.length} rows to ${AiTrackingConfig.resolveHome(config.csvPath)}',
-          'would write ${rows.length} rows to ${AiTrackingConfig.resolveHome(config.xlsxPath)}',
+          'would write ${rows.length} rows to ${AiTrackerConfig.resolveHome(config.csvPath)}',
+          'would write ${rows.length} rows to ${AiTrackerConfig.resolveHome(config.xlsxPath)}',
         ],
       );
     }
@@ -64,7 +64,7 @@ class TabularSink {
   }
 
   String _writeCsv(List<TrackedBlock> rows) {
-    final path = AiTrackingConfig.resolveHome(config.csvPath);
+    final path = AiTrackerConfig.resolveHome(config.csvPath);
     final buffer = StringBuffer()..writeln(columns.join(','));
     for (final row in rows) {
       buffer.writeln(_cells(row).map(_escape).join(','));
@@ -75,7 +75,7 @@ class TabularSink {
   }
 
   String _writeXlsx(List<TrackedBlock> rows) {
-    final path = AiTrackingConfig.resolveHome(config.xlsxPath);
+    final path = AiTrackerConfig.resolveHome(config.xlsxPath);
     final book = Excel.createExcel();
     final sheet = book['AI hours'];
     book.setDefaultSheet('AI hours');
