@@ -141,10 +141,10 @@ class WorkingHoursSink {
       final backup = candidates.isEmpty ? null : _backup(file);
       for (final name in missing) {
         final link = links.where((l) => l.workingHoursProject == name).firstOrNull;
-        projects[name] = _createProject(db, name, link?.customer, link?.color);
+        projects[name] = _createProject(db, name, link?.company, link?.color);
         notes.add(
           'created project "$name"'
-          '${link?.customer == null ? '' : ' for ${link!.customer}'}',
+          '${link?.company == null ? '' : ' for ${link!.company}'}',
         );
       }
       for (final block in candidates) {
@@ -187,7 +187,11 @@ class WorkingHoursSink {
 
   /// Pushes each linked project's colour into the ledger, so the two apps draw
   /// the same project the same way.
-  SyncReport applyColors({bool dryRun = true, bool quitApp = false}) {
+  SyncReport applyColors({
+    bool dryRun = true,
+    bool quitApp = false,
+    Set<String>? only,
+  }) {
     final file = File(databasePath);
     if (!file.existsSync()) {
       return SyncReport(
@@ -198,7 +202,10 @@ class WorkingHoursSink {
     }
     final coloured = [
       for (final link in links)
-        if (link.color != null && link.color!.isNotEmpty) link,
+        if (link.color != null &&
+            link.color!.isNotEmpty &&
+            (only == null || only.contains(link.name)))
+          link,
     ];
     if (coloured.isEmpty) {
       return SyncReport(sink: 'workinghours', applied: !dryRun);
@@ -231,8 +238,23 @@ class WorkingHoursSink {
     try {
       String? backup;
       for (final link in coloured) {
+        final current = db.select(
+          'select Color from Projects where Name = ?',
+          [link.workingHoursProject],
+        );
+        if (current.isEmpty) {
+          notes.add('no project "${link.workingHoursProject}" to colour');
+          continue;
+        }
+        if ('${current.first['Color']}'.toUpperCase() ==
+            link.color!.toUpperCase()) {
+          continue;
+        }
         if (dryRun) {
-          notes.add('would colour "${link.workingHoursProject}" ${link.color}');
+          notes.add(
+            'would colour "${link.workingHoursProject}" '
+            '${current.first['Color']} -> ${link.color}',
+          );
           continue;
         }
         backup ??= _backup(file);
@@ -240,11 +262,7 @@ class WorkingHoursSink {
           link.color,
           link.workingHoursProject,
         ]);
-        notes.add(
-          db.updatedRows == 0
-              ? 'no project "${link.workingHoursProject}" to colour'
-              : 'coloured "${link.workingHoursProject}" ${link.color}',
-        );
+        notes.add('coloured "${link.workingHoursProject}" ${link.color}');
       }
       if (relaunch) app.launch();
       return SyncReport(
@@ -279,7 +297,7 @@ class WorkingHoursSink {
   int _createProject(
     Database db,
     String name,
-    String? customer,
+    String? company,
     String? color,
   ) {
     final sort = db.select('select coalesce(max(SortIndex), 0) + 1 as next from Projects');
@@ -296,10 +314,10 @@ class WorkingHoursSink {
       ],
     );
     final project = db.lastInsertRowId;
-    if (customer != null && customer.isNotEmpty) {
+    if (company != null && company.isNotEmpty) {
       db.execute('insert into ProjectTags (ProjectId, TagId) values (?, ?)', [
         project,
-        tagId(db, customer, config.color),
+        tagId(db, company, config.color),
       ]);
     }
     return project;

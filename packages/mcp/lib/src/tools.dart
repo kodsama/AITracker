@@ -155,10 +155,11 @@ List<McpTool> buildTools({String? configPath, String? overridesPath}) {
       },
     ),
     McpTool(
-      name: 'sync_diarium',
+      name: 'sync_calendar',
       description:
-          'Write a daily AI-hours entry into the Diarium journal. Previews by '
-          'default; a later run rewrites its own entry rather than duplicating.',
+          'Publish the hours as a macOS calendar, one all-day event per worked '
+          'day. Diarium reads system calendars, so this is how the hours show '
+          'up there. Previews by default.',
       inputSchema: {
         'type': 'object',
         'properties': {
@@ -166,16 +167,14 @@ List<McpTool> buildTools({String? configPath, String? overridesPath}) {
           'since': _iso('Start of the window.'),
           'until': _iso('End of the window.'),
           'dry_run': _dryRun,
-          'quit_app': _quitApp('Diarium'),
         },
       },
       run: (args) async {
         final config = AiTrackerConfig.load(configPath);
-        final report = DiariumSink(config: config.diarium).sync(
-          read(args),
-          dryRun: args['dry_run'] as bool? ?? true,
-          quitApp: args['quit_app'] as bool? ?? false,
-        );
+        final report = CalendarSink(
+          config: config.calendar,
+          links: config.links,
+        ).sync(read(args), dryRun: args['dry_run'] as bool? ?? true);
         return {'ok': report.refusal == null, ...report.toJson()};
       },
     ),
@@ -241,7 +240,7 @@ List<McpTool> buildTools({String? configPath, String? overridesPath}) {
       name: 'list_catalog',
       description:
           'What WorkingHours and Diarium already hold: projects with their '
-          'colours, tags, the customers the ledger records, and the journal '
+          'colours, tags, the companies the ledger records, and the journal '
           'tags. Map onto these rather than inventing names.',
       inputSchema: const {'type': 'object', 'properties': <String, Object?>{}},
       run: (args) async => {
@@ -253,7 +252,7 @@ List<McpTool> buildTools({String? configPath, String? overridesPath}) {
       name: 'set_project_link',
       description:
           'Line a project up with the two apps: the name it is filed under in '
-          'WorkingHours, its customer tag there, the tags put on each work '
+          'WorkingHours, its company tag there, the tags put on each work '
           'unit, its Diarium tag, and its colour.',
       inputSchema: {
         'type': 'object',
@@ -268,20 +267,22 @@ List<McpTool> buildTools({String? configPath, String? overridesPath}) {
             'description':
                 'Project name in WorkingHours, when it differs from name.',
           },
-          'customer': {
+          'company': {
             'type': 'string',
             'description':
                 'Tag attached to the WorkingHours project, which is how that '
-                'ledger records the customer.',
+                'ledger records the company.',
           },
           'working_hours_tags': {
             'type': 'array',
             'items': {'type': 'string'},
             'description': 'Tags put on every work unit written.',
           },
-          'diarium_tag': {
+          'calendar_label': {
             'type': 'string',
-            'description': 'Tag put on the Diarium entry for that day.',
+            'description':
+                'Name this project goes under in the published calendar, and '
+                'so in Diarium.',
           },
           'color': {
             'type': 'string',
@@ -296,11 +297,12 @@ List<McpTool> buildTools({String? configPath, String? overridesPath}) {
         final link = ProjectLink(
           name: name,
           workingHours: args['working_hours'] as String? ?? existing?.workingHours,
-          customer: args['customer'] as String? ?? existing?.customer,
+          company: args['company'] as String? ?? existing?.company,
           workingHoursTags: args['working_hours_tags'] == null
               ? existing?.workingHoursTags ?? const []
               : [for (final tag in args['working_hours_tags']! as List) '$tag'],
-          diariumTag: args['diarium_tag'] as String? ?? existing?.diariumTag,
+          calendarLabel:
+              args['calendar_label'] as String? ?? existing?.calendarLabel,
           color: args['color'] as String? ?? existing?.color,
         );
         final links = [
@@ -328,10 +330,6 @@ List<McpTool> buildTools({String? configPath, String? overridesPath}) {
             'type': 'boolean',
             'description': 'Also rename the WorkingHours project. Default false.',
           },
-          'in_diarium': {
-            'type': 'boolean',
-            'description': 'Also rename the linked Diarium tag. Default false.',
-          },
           'dry_run': _dryRun,
           'quit_app': _quitApp('each app'),
         },
@@ -343,7 +341,6 @@ List<McpTool> buildTools({String? configPath, String? overridesPath}) {
           from: args['from']! as String,
           to: args['to']! as String,
           inWorkingHours: args['in_working_hours'] as bool? ?? false,
-          inDiarium: args['in_diarium'] as bool? ?? false,
           dryRun: args['dry_run'] as bool? ?? true,
           quitApps: args['quit_app'] as bool? ?? false,
           overrides: overrides,

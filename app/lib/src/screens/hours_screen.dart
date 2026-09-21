@@ -5,7 +5,7 @@ import '../state/app_state.dart';
 import '../widgets/batch_bar.dart';
 import '../widgets/block_list.dart';
 import '../widgets/summary_header.dart';
-import '../widgets/sync_sheet.dart';
+import '../widgets/export_dialog.dart';
 
 /// The main screen: what the transcripts say, and the button that files it.
 class HoursScreen extends StatelessWidget {
@@ -23,9 +23,9 @@ class HoursScreen extends StatelessWidget {
       children: [
         SummaryHeader(
           state: state,
-          onSync: () => showDialog<void>(
+          onExport: () => showDialog<void>(
             context: context,
-            builder: (context) => SyncDialog(state: state),
+            builder: (context) => ExportDialog(state: state),
           ),
         ),
         if (strays.isNotEmpty) _UnmappedBanner(strays: strays),

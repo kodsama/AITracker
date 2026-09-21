@@ -12,6 +12,9 @@ TrackedBlock block(String day, {String? project, int hours = 1}) => TrackedBlock
 );
 
 void main() {
+  // A test run has no business writing to the user's log.
+  Log.enabled = false;
+
   // A Wednesday, in the third quarter, second semester.
   final now = DateTime(2026, 9, 16, 14, 30);
 

@@ -8,13 +8,13 @@ import 'period_picker.dart';
 /// that files it.
 class SummaryHeader extends StatelessWidget {
   /// Creates the header.
-  const SummaryHeader({required this.state, required this.onSync, super.key});
+  const SummaryHeader({required this.state, required this.onExport, super.key});
 
   /// App state.
   final AppState state;
 
-  /// Called when the sync button is pressed.
-  final VoidCallback onSync;
+  /// Called when the export button is pressed.
+  final VoidCallback onExport;
 
   @override
   Widget build(BuildContext context) {
@@ -62,9 +62,9 @@ class SummaryHeader extends StatelessWidget {
                   ),
                 ),
               FilledButton.icon(
-                onPressed: state.blocks.isEmpty ? null : onSync,
+                onPressed: state.blocks.isEmpty ? null : onExport,
                 icon: const Icon(Icons.upload_rounded, size: 20),
-                label: const Text('Sync'),
+                label: const Text('Export…'),
               ),
             ],
           ),

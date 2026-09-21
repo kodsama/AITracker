@@ -5,6 +5,9 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
+  // A test run has no business writing to the user's log.
+  Log.enabled = false;
+
   late Directory temp;
 
   setUp(() => temp = Directory.systemTemp.createTempSync('aitracker_store'));
@@ -97,7 +100,13 @@ void main() {
     test('sources are discovered from the assistant config directories', () {
       final found = AiTrackerConfig.discoverSources();
       for (final source in found) {
-        expect(p.basename(source), 'projects');
+        // Claude Code keeps a projects folder; the Gemini and Antigravity CLIs
+        // keep their history under ~/.gemini.
+        expect(
+          p.basename(source) == 'projects' || p.basename(source) == '.gemini',
+          isTrue,
+          reason: source,
+        );
         expect(Directory(source).existsSync(), isTrue);
       }
       expect(found, equals([...found]..sort()));

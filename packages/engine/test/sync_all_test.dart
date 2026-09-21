@@ -5,6 +5,9 @@ import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 void main() {
+  // A test run has no business writing to the user's log.
+  Log.enabled = false;
+
   late Directory temp;
   late AiTrackerConfig config;
 
@@ -42,25 +45,11 @@ void main() {
       ''')
       ..execute("insert into Settings values ('WatchStarted', '')")
       ..close();
-    sqlite3.open('${temp.path}/diarium.db')
-      ..execute('''
-        create table Entries (DiaryEntryId bigint primary key not null,
-          Heading varchar not null, Text varchar not null, Rating integer not null,
-          Latitude float not null, Longitude float not null);
-        create table EntryTags (DiaryEntryId bigint not null, DiaryTagId integer not null,
-          TrackingValue varchar);
-        create table Tags (DiaryTagId integer primary key autoincrement not null,
-          Value varchar not null, Type integer not null, Color varchar, Icon varchar);
-      ''')
-      ..close();
 
     config = AiTrackerConfig(
       sources: const [],
       workingHours: WorkingHoursSinkConfig(databasePath: '${temp.path}/wh.db'),
-      diarium: DiariumSinkConfig(
-        enabled: true,
-        databasePath: '${temp.path}/diarium.db',
-      ),
+      calendar: const CalendarSinkConfig(enabled: true),
       tabular: TabularSinkConfig(
         enabled: true,
         csvPath: '${temp.path}/hours.csv',
@@ -75,13 +64,13 @@ void main() {
     final reports = syncAll(config, blocks, dryRun: false);
 
     expect(reports.map((r) => r.sink), kSinkNames);
-    expect(reports.every((r) => r.applied), isTrue);
+    // The calendar needs its EventKit helper, which a test machine may not
+    // have built; the other two are pure file work and must have run.
+    expect(reports.first.applied, isTrue);
+    expect(reports.last.applied, isTrue);
     final db = sqlite3.open('${temp.path}/wh.db');
     expect(db.select('select * from WorkUnits'), hasLength(1));
     db.close();
-    final journal = sqlite3.open('${temp.path}/diarium.db');
-    expect(journal.select('select * from Entries'), hasLength(1));
-    journal.close();
     expect(File('${temp.path}/hours.csv').existsSync(), isTrue);
   });
 
@@ -97,7 +86,7 @@ void main() {
 
   test('a disabled sink is left out', () {
     final reports = syncAll(
-      config.copyWith(diarium: const DiariumSinkConfig()),
+      config.copyWith(calendar: const CalendarSinkConfig()),
       blocks,
     );
 
@@ -105,9 +94,9 @@ void main() {
   });
 
   test('only narrows the run', () {
-    final reports = syncAll(config, blocks, only: {'diarium'});
+    final reports = syncAll(config, blocks, only: {'tabular'});
 
-    expect(reports.single.sink, 'diarium');
+    expect(reports.single.sink, 'tabular');
   });
 
   test('one sink refusing leaves the others reported', () {
@@ -133,17 +122,17 @@ void main() {
       const full = ProjectLink(
         name: 'Byte Buddies - idbuddy',
         workingHours: 'BB - idbuddy',
-        customer: 'Byte Buddies',
+        company: 'Byte Buddies',
         workingHoursTags: ['Programming'],
-        diariumTag: 'idbuddy',
+        calendarLabel: 'idbuddy',
         color: '#FF34D399',
       );
       final copy = ProjectLink.fromJson(full.toJson());
 
       expect(copy.workingHoursProject, 'BB - idbuddy');
-      expect(copy.customer, 'Byte Buddies');
+      expect(copy.company, 'Byte Buddies');
       expect(copy.workingHoursTags, ['Programming']);
-      expect(copy.diariumTag, 'idbuddy');
+      expect(copy.calendarLabel, 'idbuddy');
       expect(copy.color, '#FF34D399');
       expect(copy.copyWith(color: '#FF000000').color, '#FF000000');
     });
@@ -153,7 +142,7 @@ void main() {
       config
           .copyWith(
             links: const [
-              ProjectLink(name: 'A - a', workingHours: 'B', diariumTag: 'c'),
+              ProjectLink(name: 'A - a', workingHours: 'B', calendarLabel: 'c'),
             ],
           )
           .save(path);
@@ -161,7 +150,7 @@ void main() {
       final loaded = AiTrackerConfig.load(path);
 
       expect(loaded.linkFor('A - a')?.workingHours, 'B');
-      expect(loaded.linkFor('A - a')?.diariumTag, 'c');
+      expect(loaded.linkFor('A - a')?.calendarLabel, 'c');
       expect(loaded.linkFor('missing'), isNull);
     });
   });

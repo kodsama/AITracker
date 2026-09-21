@@ -22,7 +22,21 @@ class McpServer {
     this.title = 'AI Tracker',
     this.version = kMcpDefaultVersion,
     this.protocolVersion = '2025-06-18',
+    this.requiredToken,
   });
+
+  /// A server for one connection, with its own authentication state.
+  ///
+  /// Every socket has to present the key itself, so the transport hands each
+  /// client a session rather than sharing one server's state.
+  McpServer session() => McpServer(
+    tools: tools,
+    name: name,
+    title: title,
+    version: version,
+    protocolVersion: protocolVersion,
+    requiredToken: requiredToken,
+  );
 
   /// The tool catalog.
   final List<McpTool> tools;
@@ -40,6 +54,15 @@ class McpServer {
   /// Protocol revision used when the client doesn't request one.
   final String protocolVersion;
 
+  /// Key a client must present on `initialize`. Null lets everything through,
+  /// which is what stdio does.
+  final String? requiredToken;
+
+  bool _authenticated = false;
+
+  /// Whether this session may call tools.
+  bool get authenticated => requiredToken == null || _authenticated;
+
   /// Handles one decoded JSON-RPC request. Returns the response map, or null
   /// when the message is a notification (no `id`) needing no reply.
   Future<Map<String, Object?>?> handle(Map<String, Object?> request) async {
@@ -50,6 +73,22 @@ class McpServer {
 
     // Notifications carry no id and never get a response.
     if (id == null) return null;
+
+    if (method == 'initialize' && requiredToken != null) {
+      final presented = extractToken(params);
+      _authenticated = presented != null && presented == requiredToken;
+      if (!_authenticated) {
+        return _err(
+          id,
+          -32001,
+          'Unauthorized: present the AI Tracker key as '
+          'initialize.params.api_key. Settings shows it under MCP.',
+        );
+      }
+    }
+    if (!authenticated) {
+      return _err(id, -32001, 'Unauthorized: call initialize with the key');
+    }
 
     switch (method) {
       case 'initialize':
@@ -132,4 +171,17 @@ class McpServer {
     'id': id,
     'error': {'code': code, 'message': message},
   };
+}
+
+/// Pulls the key out of `initialize` params. Clients differ on where they put
+/// a bearer, so the three shapes in the wild are all read.
+String? extractToken(Map<String, Object?> params) {
+  final direct = params['apiKey'] ?? params['api_key'];
+  if (direct is String && direct.isNotEmpty) return direct;
+  final auth = params['authentication'];
+  if (auth is Map) {
+    final token = auth['token'] ?? auth['apiKey'] ?? auth['api_key'];
+    if (token is String && token.isNotEmpty) return token;
+  }
+  return null;
 }

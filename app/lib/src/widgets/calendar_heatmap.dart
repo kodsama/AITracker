@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 /// took most of it, and shaded by how much of it there was.
 ///
 /// Colour carries identity and shade carries magnitude, so the legend and the
-/// hover card both name the project: the cell is never the only thing saying
+/// hover line both name the project: a cell is never the only thing saying
 /// which project it was.
 class CalendarHeatmap extends StatefulWidget {
   /// Creates the calendar.
@@ -27,15 +27,29 @@ class CalendarHeatmap extends StatefulWidget {
   /// Colour for a project.
   final Color Function(String project) colorOf;
 
+  /// Space between cells.
+  static const double gap = 4;
+
+  /// Width kept for the weekday names.
+  static const double labelWidth = 38;
+
+  /// A cell narrower than this is unreadable; one wider stops looking like a
+  /// calendar and starts looking like a wall.
+  static const double minCell = 13;
+
+  /// Cap on cell size, so a short window does not blow up to fill a wide
+  /// window with six enormous squares.
+  static const double maxCell = 54;
+
+  /// At this size a cell has room for the day of the month.
+  static const double numbersFrom = 24;
+
   @override
   State<CalendarHeatmap> createState() => _CalendarHeatmapState();
 }
 
 class _CalendarHeatmapState extends State<CalendarHeatmap> {
   DateTime? _hovered;
-
-  static const double cell = 15;
-  static const double gap = 3;
 
   @override
   Widget build(BuildContext context) {
@@ -45,11 +59,10 @@ class _CalendarHeatmapState extends State<CalendarHeatmap> {
     );
     final weeks = <List<DateTime>>[];
     for (var at = start; at.isBefore(widget.period.end); ) {
-      final week = <DateTime>[];
-      for (var day = 0; day < 7; day++) {
-        week.add(DateTime(at.year, at.month, at.day + day));
-      }
-      weeks.add(week);
+      weeks.add([
+        for (var day = 0; day < 7; day++)
+          DateTime(at.year, at.month, at.day + day),
+      ]);
       at = DateTime(at.year, at.month, at.day + 7);
     }
     final busiest = widget.days.values.fold<Duration>(
@@ -57,72 +70,115 @@ class _CalendarHeatmapState extends State<CalendarHeatmap> {
       (most, row) => bucketTotal(row) > most ? bucketTotal(row) : most,
     );
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  const SizedBox(height: 18),
-                  for (final day in ['Mon', '', 'Wed', '', 'Fri', '', 'Sun'])
-                    SizedBox(
-                      height: cell + gap,
-                      width: 34,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // The grid takes the width it is given: one column per week, sized to
+        // fit, down to a floor that turns on horizontal scrolling instead.
+        final available =
+            constraints.maxWidth - CalendarHeatmap.labelWidth - 8;
+        final cell = math.max(
+          CalendarHeatmap.minCell,
+          math.min(
+            CalendarHeatmap.maxCell,
+            available / weeks.length - CalendarHeatmap.gap,
+          ),
+        );
+        final numbers = cell >= CalendarHeatmap.numbersFrom;
+        final grid = Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                SizedBox(height: cell * 0.5 + 12),
+                for (final day in const [
+                  'Mon',
+                  'Tue',
+                  'Wed',
+                  'Thu',
+                  'Fri',
+                  'Sat',
+                  'Sun',
+                ])
+                  SizedBox(
+                    height: cell + CalendarHeatmap.gap,
+                    width: CalendarHeatmap.labelWidth,
+                    child: Align(
+                      alignment: Alignment.centerRight,
                       child: Text(
-                        day,
-                        textAlign: TextAlign.right,
+                        cell >= 18 ? day : day.substring(0, 1),
                         style: theme.textTheme.labelSmall?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
                     ),
-                ],
-              ),
-              const SizedBox(width: 8),
-              for (final week in weeks)
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      height: 18,
-                      width: cell + gap,
-                      child: week.first.day <= 7
-                          ? Text(
-                              _month(week.first),
+                  ),
+              ],
+            ),
+            const SizedBox(width: 8),
+            for (final week in weeks)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    height: cell * 0.5 + 12,
+                    width: cell + CalendarHeatmap.gap,
+                    // A month name is wider than one column, so let it run on
+                    // over the weeks that follow it.
+                    child: week.any((day) => day.day <= 7)
+                        ? OverflowBox(
+                            maxWidth: 90,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              '${_month(week.firstWhere((d) => d.day <= 7))} '
+                              '${week.firstWhere((d) => d.day <= 7).year}',
                               style: theme.textTheme.labelSmall?.copyWith(
                                 color: theme.colorScheme.onSurfaceVariant,
                               ),
-                            )
-                          : null,
+                            ),
+                          )
+                        : null,
+                  ),
+                  for (final day in week)
+                    _Cell(
+                      day: day,
+                      row: widget.days[day] ?? const {},
+                      busiest: busiest,
+                      inPeriod: widget.period.contains(day),
+                      hovered: _hovered == day,
+                      size: cell,
+                      showNumber: numbers,
+                      colorOf: widget.colorOf,
+                      onHover: (over) =>
+                          setState(() => _hovered = over ? day : null),
                     ),
-                    for (final day in week)
-                      _Cell(
-                        day: day,
-                        row: widget.days[day] ?? const {},
-                        busiest: busiest,
-                        inPeriod: widget.period.contains(day),
-                        hovered: _hovered == day,
-                        colorOf: widget.colorOf,
-                        onHover: (over) =>
-                            setState(() => _hovered = over ? day : null),
-                      ),
-                  ],
-                ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-        _Readout(
-          day: _hovered,
-          row: _hovered == null ? const {} : widget.days[_hovered!] ?? const {},
-          colorOf: widget.colorOf,
-        ),
-      ],
+                ],
+              ),
+          ],
+        );
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (cell > CalendarHeatmap.minCell)
+              grid
+            else
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: grid,
+              ),
+            const SizedBox(height: 12),
+            _Readout(
+              day: _hovered,
+              row: _hovered == null
+                  ? const {}
+                  : widget.days[_hovered!] ?? const {},
+              colorOf: widget.colorOf,
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -134,6 +190,8 @@ class _Cell extends StatelessWidget {
     required this.busiest,
     required this.inPeriod,
     required this.hovered,
+    required this.size,
+    required this.showNumber,
     required this.colorOf,
     required this.onHover,
   });
@@ -143,6 +201,8 @@ class _Cell extends StatelessWidget {
   final Duration busiest;
   final bool inPeriod;
   final bool hovered;
+  final double size;
+  final bool showNumber;
   final Color Function(String) colorOf;
   final ValueChanged<bool> onHover;
 
@@ -165,23 +225,40 @@ class _Cell extends StatelessWidget {
       onExit: (_) => onHover(false),
       child: Padding(
         padding: const EdgeInsets.only(
-          right: _CalendarHeatmapState.gap,
-          bottom: _CalendarHeatmapState.gap,
+          right: CalendarHeatmap.gap,
+          bottom: CalendarHeatmap.gap,
         ),
         child: Container(
-          width: _CalendarHeatmapState.cell,
-          height: _CalendarHeatmapState.cell,
+          width: size,
+          height: size,
+          alignment: Alignment.center,
           decoration: BoxDecoration(
             color: colour,
-            borderRadius: BorderRadius.circular(3),
+            borderRadius: BorderRadius.circular(size < 20 ? 3 : 6),
             border: hovered
                 ? Border.all(color: theme.colorScheme.onSurface, width: 1.5)
                 : null,
           ),
+          child: showNumber
+              ? Text(
+                  '${day.day}',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: project == null
+                        ? theme.colorScheme.onSurfaceVariant.withValues(
+                            alpha: inPeriod ? 0.7 : 0.35,
+                          )
+                        : _inkOn(colour),
+                  ),
+                )
+              : null,
         ),
       ),
     );
   }
+
+  /// Black or white, whichever the filled cell can carry.
+  static Color _inkOn(Color background) =>
+      background.computeLuminance() > 0.45 ? Colors.black87 : Colors.white;
 }
 
 class _Readout extends StatelessWidget {

@@ -44,6 +44,8 @@ Future<ServerSocket> serveTcp(
   onLog?.call('MCP server listening on $host:${socket.port}');
   socket.listen((client) {
     onLog?.call('client connected: ${client.remoteAddress.address}');
+    // One session per connection: authentication is per client, not per server.
+    final session = server.session();
     const splitter = LineSplitter();
     var buffer = '';
     // Serialise async processing: chain each complete line onto tail so that
@@ -64,7 +66,7 @@ Future<ServerSocket> serveTcp(
                 // Capture line in a local so the closure is safe across iterations.
                 final captured = line;
                 tail = tail.then((_) async {
-                  final response = await processLine(server, captured);
+                  final response = await processLine(session, captured);
                   if (response != null) client.writeln(jsonEncode(response));
                 });
               }

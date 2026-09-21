@@ -39,9 +39,9 @@ class ProjectLink {
   const ProjectLink({
     required this.name,
     this.workingHours,
-    this.customer,
+    this.company,
     this.workingHoursTags = const [],
-    this.diariumTag,
+    this.calendarLabel,
     this.color,
   });
 
@@ -52,14 +52,15 @@ class ProjectLink {
   final String? workingHours;
 
   /// Tag attached to the WorkingHours project when this tool creates it, which
-  /// is how that ledger records the customer.
-  final String? customer;
+  /// is how that ledger records the company.
+  final String? company;
 
   /// Tags put on every work unit written for this project.
   final List<String> workingHoursTags;
 
-  /// Tag put on the Diarium entry for a day this project worked.
-  final String? diariumTag;
+  /// Name this project goes under in the published calendar, and so in
+  /// Diarium. Null uses the project's own name.
+  final String? calendarLabel;
 
   /// Colour for this project, `#AARRGGBB` as WorkingHours writes it. Null
   /// leaves the sink's default.
@@ -72,12 +73,12 @@ class ProjectLink {
   factory ProjectLink.fromJson(Map<String, Object?> json) => ProjectLink(
     name: json['name']! as String,
     workingHours: json['working_hours'] as String?,
-    customer: json['customer'] as String?,
+    company: json['company'] as String?,
     workingHoursTags: [
       for (final tag in (json['working_hours_tags'] as List?) ?? const [])
         '$tag',
     ],
-    diariumTag: json['diarium_tag'] as String?,
+    calendarLabel: json['calendar_label'] as String?,
     color: json['color'] as String?,
   );
 
@@ -85,9 +86,9 @@ class ProjectLink {
   Map<String, Object?> toJson() => {
     'name': name,
     if (workingHours != null) 'working_hours': workingHours,
-    if (customer != null) 'customer': customer,
+    if (company != null) 'company': company,
     if (workingHoursTags.isNotEmpty) 'working_hours_tags': workingHoursTags,
-    if (diariumTag != null) 'diarium_tag': diariumTag,
+    if (calendarLabel != null) 'calendar_label': calendarLabel,
     if (color != null) 'color': color,
   };
 
@@ -95,16 +96,16 @@ class ProjectLink {
   ProjectLink copyWith({
     String? name,
     String? workingHours,
-    String? customer,
+    String? company,
     List<String>? workingHoursTags,
-    String? diariumTag,
+    String? calendarLabel,
     String? color,
   }) => ProjectLink(
     name: name ?? this.name,
     workingHours: workingHours ?? this.workingHours,
-    customer: customer ?? this.customer,
+    company: company ?? this.company,
     workingHoursTags: workingHoursTags ?? this.workingHoursTags,
-    diariumTag: diariumTag ?? this.diariumTag,
+    calendarLabel: calendarLabel ?? this.calendarLabel,
     color: color ?? this.color,
   );
 }
@@ -117,6 +118,7 @@ class WorkingHoursSinkConfig {
     this.databasePath = defaultDatabasePath,
     this.descriptionTemplate = 'AI: {repo}',
     this.color = '#FF6C4AB6',
+    this.automatic = false,
   });
 
   /// Sandbox path of the WorkingHours store on macOS.
@@ -125,6 +127,10 @@ class WorkingHoursSinkConfig {
 
   /// Whether a sync writes work units.
   final bool enabled;
+
+  /// Whether the app files to it as soon as it finds new activity, rather than
+  /// waiting for the button.
+  final bool automatic;
 
   /// Absolute path, or one relative to the home directory.
   final String databasePath;
@@ -144,6 +150,7 @@ class WorkingHoursSinkConfig {
         descriptionTemplate:
             json['description_template'] as String? ?? 'AI: {repo}',
         color: json['color'] as String? ?? '#FF6C4AB6',
+        automatic: json['automatic'] as bool? ?? false,
       );
 
   /// JSON form.
@@ -152,51 +159,47 @@ class WorkingHoursSinkConfig {
     'database_path': databasePath,
     'description_template': descriptionTemplate,
     'color': color,
+    'automatic': automatic,
   };
 }
 
-/// Where and how the Diarium sink writes.
-class DiariumSinkConfig {
+/// Where and how the calendar this tool publishes is written.
+class CalendarSinkConfig {
   /// Creates the configuration.
-  const DiariumSinkConfig({
+  const CalendarSinkConfig({
     this.enabled = false,
-    this.databasePath = defaultDatabasePath,
-    this.heading = 'AI hours',
-    this.entryTimeOfDay = '23:55',
+    this.calendarName = 'AI work',
+    this.titleTemplate = 'AI work: {hours}',
+    this.automatic = false,
   });
 
-  /// Sandbox path of the Diarium store on macOS.
-  static const String defaultDatabasePath =
-      'Library/Containers/mac.partl.Diarium/Data/data.db';
-
-  /// Whether a sync writes journal entries.
+  /// Whether an export publishes the calendar.
   final bool enabled;
 
-  /// Absolute path, or one relative to the home directory.
-  final String databasePath;
+  /// Calendar to keep, created on a local source if it is not there.
+  final String calendarName;
 
-  /// Heading of the entry this tool owns.
-  final String heading;
+  /// Title of each day's event. `{hours}` is the day's total.
+  final String titleTemplate;
 
-  /// `HH:mm` the daily entry is stamped with. Diarium keys entries by their
-  /// timestamp, so a fixed time makes re-runs update rather than duplicate.
-  final String entryTimeOfDay;
+  /// Whether the app republishes it as soon as it finds new activity.
+  final bool automatic;
 
   /// Reads the configuration from its JSON form.
-  factory DiariumSinkConfig.fromJson(Map<String, Object?> json) =>
-      DiariumSinkConfig(
+  factory CalendarSinkConfig.fromJson(Map<String, Object?> json) =>
+      CalendarSinkConfig(
         enabled: json['enabled'] as bool? ?? false,
-        databasePath: json['database_path'] as String? ?? defaultDatabasePath,
-        heading: json['heading'] as String? ?? 'AI hours',
-        entryTimeOfDay: json['entry_time_of_day'] as String? ?? '23:55',
+        calendarName: json['calendar_name'] as String? ?? 'AI work',
+        titleTemplate: json['title_template'] as String? ?? 'AI work: {hours}',
+        automatic: json['automatic'] as bool? ?? false,
       );
 
   /// JSON form.
   Map<String, Object?> toJson() => {
     'enabled': enabled,
-    'database_path': databasePath,
-    'heading': heading,
-    'entry_time_of_day': entryTimeOfDay,
+    'calendar_name': calendarName,
+    'title_template': titleTemplate,
+    'automatic': automatic,
   };
 }
 
@@ -207,10 +210,14 @@ class TabularSinkConfig {
     this.enabled = false,
     this.csvPath = 'Documents/AI hours.csv',
     this.xlsxPath = 'Documents/AI hours.xlsx',
+    this.automatic = false,
   });
 
   /// Whether a sync writes the spreadsheets.
   final bool enabled;
+
+  /// Whether the app rewrites them as soon as it finds new activity.
+  final bool automatic;
 
   /// Absolute path, or one relative to the home directory.
   final String csvPath;
@@ -224,6 +231,7 @@ class TabularSinkConfig {
         enabled: json['enabled'] as bool? ?? false,
         csvPath: json['csv_path'] as String? ?? 'Documents/AI hours.csv',
         xlsxPath: json['xlsx_path'] as String? ?? 'Documents/AI hours.xlsx',
+        automatic: json['automatic'] as bool? ?? false,
       );
 
   /// JSON form.
@@ -231,6 +239,7 @@ class TabularSinkConfig {
     'enabled': enabled,
     'csv_path': csvPath,
     'xlsx_path': xlsxPath,
+    'automatic': automatic,
   };
 }
 
@@ -245,7 +254,7 @@ class AiTrackerConfig {
     this.links = const [],
     this.fallbackProject,
     this.workingHours = const WorkingHoursSinkConfig(),
-    this.diarium = const DiariumSinkConfig(),
+    this.calendar = const CalendarSinkConfig(),
     this.tabular = const TabularSinkConfig(),
     this.mcpEnabled = false,
     this.mcpPort = 8788,
@@ -270,11 +279,18 @@ class AiTrackerConfig {
   /// keeps them out of the sinks and lists them as unmapped instead.
   final String? fallbackProject;
 
+  /// Sinks set to file by themselves.
+  Set<String> get automaticSinks => {
+    if (workingHours.enabled && workingHours.automatic) 'workinghours',
+    if (calendar.enabled && calendar.automatic) 'calendar',
+    if (tabular.enabled && tabular.automatic) 'tabular',
+  };
+
   /// WorkingHours sink settings.
   final WorkingHoursSinkConfig workingHours;
 
-  /// Diarium sink settings.
-  final DiariumSinkConfig diarium;
+  /// Calendar sink settings.
+  final CalendarSinkConfig calendar;
 
   /// CSV and Excel sink settings.
   final TabularSinkConfig tabular;
@@ -310,8 +326,8 @@ class AiTrackerConfig {
       workingHours: WorkingHoursSinkConfig.fromJson(
         (json['working_hours'] as Map?)?.cast<String, Object?>() ?? const {},
       ),
-      diarium: DiariumSinkConfig.fromJson(
-        (json['diarium'] as Map?)?.cast<String, Object?>() ?? const {},
+      calendar: CalendarSinkConfig.fromJson(
+        (json['calendar'] as Map?)?.cast<String, Object?>() ?? const {},
       ),
       tabular: TabularSinkConfig.fromJson(
         (json['tabular'] as Map?)?.cast<String, Object?>() ?? const {},
@@ -330,7 +346,7 @@ class AiTrackerConfig {
     'projects': [for (final link in links) link.toJson()],
     'fallback_project': fallbackProject,
     'working_hours': workingHours.toJson(),
-    'diarium': diarium.toJson(),
+    'calendar': calendar.toJson(),
     'tabular': tabular.toJson(),
     'mcp_enabled': mcpEnabled,
     'mcp_port': mcpPort,
@@ -345,7 +361,7 @@ class AiTrackerConfig {
     List<ProjectLink>? links,
     String? fallbackProject,
     WorkingHoursSinkConfig? workingHours,
-    DiariumSinkConfig? diarium,
+    CalendarSinkConfig? calendar,
     TabularSinkConfig? tabular,
     bool? mcpEnabled,
     int? mcpPort,
@@ -357,7 +373,7 @@ class AiTrackerConfig {
     links: links ?? this.links,
     fallbackProject: fallbackProject ?? this.fallbackProject,
     workingHours: workingHours ?? this.workingHours,
-    diarium: diarium ?? this.diarium,
+    calendar: calendar ?? this.calendar,
     tabular: tabular ?? this.tabular,
     mcpEnabled: mcpEnabled ?? this.mcpEnabled,
     mcpPort: mcpPort ?? this.mcpPort,
@@ -389,10 +405,12 @@ class AiTrackerConfig {
   static String _fold(String value) =>
       value.toLowerCase().replaceAll(RegExp(r'[\s/\\_-]+'), '-');
 
-  /// Every `~/.claude*/projects` directory on the machine.
+  /// Transcript folders the assistants on this machine are known to use.
   ///
-  /// Claude Code keeps its transcripts there, and `CLAUDE_CONFIG_DIR` lets a
-  /// distribution move that root, so the glob catches side-by-side installs.
+  /// Claude Code keeps one directory per project under `~/.claude*/projects`,
+  /// and `CLAUDE_CONFIG_DIR` lets a distribution move that root, so the sweep
+  /// catches side-by-side installs. The Gemini and Antigravity CLIs keep a
+  /// history file under `~/.gemini`.
   static List<String> discoverSources() {
     final home = homeDirectory();
     final found = <String>[];
@@ -411,6 +429,8 @@ class AiTrackerConfig {
         }
       }
     }
+    final gemini = p.join(home, '.gemini');
+    if (Directory(gemini).existsSync()) found.add(gemini);
     found.sort();
     return found;
   }

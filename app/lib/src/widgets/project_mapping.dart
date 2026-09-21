@@ -30,11 +30,9 @@ class ProjectMapping extends StatelessWidget {
             Text('Mapping', style: theme.textTheme.titleLarge),
             const Spacer(),
             TextButton.icon(
-              onPressed: projects.isEmpty
-                  ? null
-                  : () => _pushColors(context),
+              onPressed: projects.isEmpty ? null : () => _colours(context),
               icon: const Icon(Icons.palette_outlined, size: 18),
-              label: const Text('Push colours to WorkingHours'),
+              label: const Text('Colours…'),
             ),
           ],
         ),
@@ -88,26 +86,18 @@ class ProjectMapping extends StatelessWidget {
   String _describe(ProjectLink? link, String project) {
     final parts = <String>[
       'WorkingHours: ${link?.workingHoursProject ?? project}',
-      if (link?.customer != null) 'customer: ${link!.customer}',
+      if (link?.company != null) 'company: ${link!.company}',
       if (link != null && link.workingHoursTags.isNotEmpty)
         'tags: ${link.workingHoursTags.join(', ')}',
-      if (link?.diariumTag != null) 'Diarium: ${link!.diariumTag}',
+      if (link?.calendarLabel != null) 'Diarium: ${link!.calendarLabel}',
     ];
     return parts.join('  ·  ');
   }
 
-  Future<void> _pushColors(BuildContext context) async {
-    final report = await state.pushColors();
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          report.refusal ??
-              (report.notes.isEmpty
-                  ? 'No colours to push yet.'
-                  : report.notes.join('\n')),
-        ),
-      ),
+  Future<void> _colours(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => _ColourSyncDialog(state: state),
     );
   }
 
@@ -129,6 +119,7 @@ class ProjectMapping extends StatelessWidget {
       builder: (context) => _LinkDialog(
         link: state.config.linkFor(project) ?? ProjectLink(name: project),
         catalog: state.catalog,
+        companies: state.knownCompanies,
       ),
     );
     if (edited == null) return;
@@ -145,7 +136,6 @@ class ProjectMapping extends StatelessWidget {
       project,
       result.name,
       inWorkingHours: result.inWorkingHours,
-      inDiarium: result.inDiarium,
     );
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -265,10 +255,17 @@ class _ColourDialogState extends State<_ColourDialog> {
 }
 
 class _LinkDialog extends StatefulWidget {
-  const _LinkDialog({required this.link, required this.catalog});
+  const _LinkDialog({
+    required this.link,
+    required this.catalog,
+    required this.companies,
+  });
 
   final ProjectLink link;
   final Catalog catalog;
+
+  /// Companies the ledger knows.
+  final List<String> companies;
 
   @override
   State<_LinkDialog> createState() => _LinkDialogState();
@@ -279,10 +276,10 @@ class _LinkDialogState extends State<_LinkDialog> {
     text: widget.link.workingHoursProject,
   );
   late final TextEditingController _customer = TextEditingController(
-    text: widget.link.customer ?? '',
+    text: widget.link.company ?? '',
   );
   late final TextEditingController _diarium = TextEditingController(
-    text: widget.link.diariumTag ?? '',
+    text: widget.link.calendarLabel ?? '',
   );
   late final Set<String> _tags = {...widget.link.workingHoursTags};
 
@@ -320,18 +317,17 @@ class _LinkDialogState extends State<_LinkDialog> {
               const SizedBox(height: 16),
               ProjectField(
                 controller: _customer,
-                options: widget.catalog.customers,
+                options: widget.companies,
                 label: 'Customer',
                 hint: 'tag WorkingHours puts on the project',
               ),
               const SizedBox(height: 16),
               ProjectField(
                 controller: _diarium,
-                options: widget.catalog.diariumTags
-                    .map((t) => t.value)
-                    .toList(),
-                label: 'Diarium tag',
-                hint: 'tag on the daily journal entry',
+                options: const [],
+                label: 'Calendar label',
+                hint: 'what this project is called in the calendar, and so in '
+                    'Diarium',
               ),
               const SizedBox(height: 18),
               Text('Work unit tags', style: theme.textTheme.labelLarge),
@@ -372,9 +368,9 @@ class _LinkDialogState extends State<_LinkDialog> {
                       _workingHours.text.trim() == widget.link.name
                   ? null
                   : _workingHours.text.trim(),
-              customer: _blank(_customer.text),
+              company: _blank(_customer.text),
               workingHoursTags: _tags.toList()..sort(),
-              diariumTag: _blank(_diarium.text),
+              calendarLabel: _blank(_diarium.text),
               color: widget.link.color,
             ),
           ),
@@ -389,11 +385,10 @@ class _LinkDialogState extends State<_LinkDialog> {
 }
 
 class _RenameRequest {
-  const _RenameRequest(this.name, this.inWorkingHours, this.inDiarium);
+  const _RenameRequest(this.name, this.inWorkingHours);
 
   final String name;
   final bool inWorkingHours;
-  final bool inDiarium;
 }
 
 class _RenameDialog extends StatefulWidget {
@@ -410,7 +405,6 @@ class _RenameDialogState extends State<_RenameDialog> {
     text: widget.project,
   );
   bool _inWorkingHours = true;
-  bool _inDiarium = false;
 
   @override
   void dispose() {
@@ -444,16 +438,10 @@ class _RenameDialogState extends State<_RenameDialog> {
             controlAffinity: ListTileControlAffinity.leading,
             title: const Text('Rename the WorkingHours project too'),
           ),
-          CheckboxListTile(
-            value: _inDiarium,
-            onChanged: (value) => setState(() => _inDiarium = value ?? false),
-            contentPadding: EdgeInsets.zero,
-            controlAffinity: ListTileControlAffinity.leading,
-            title: const Text('Rename the Diarium tag too'),
-          ),
           Text(
-            'Whatever is left unticked keeps its old name, and the mapping '
-            'remembers that they are the same project.',
+            'Left unticked, the ledger keeps its old name and the mapping '
+            'remembers that they are the same project. The calendar picks the '
+            'new name up on the next export.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
@@ -466,10 +454,211 @@ class _RenameDialogState extends State<_RenameDialog> {
       ),
       FilledButton(
         onPressed: () => Navigator.of(context).pop(
-          _RenameRequest(_name.text.trim(), _inWorkingHours, _inDiarium),
+          _RenameRequest(_name.text.trim(), _inWorkingHours),
         ),
         child: const Text('Rename'),
       ),
     ],
+  );
+}
+
+/// Compares each project's colour with the ledger's and lets each one go
+/// either way.
+///
+/// Colour is the one thing both sides own, so this is the only place the flow
+/// runs in both directions: everything else about a project is decided here and
+/// written out.
+class _ColourSyncDialog extends StatefulWidget {
+  const _ColourSyncDialog({required this.state});
+
+  final AppState state;
+
+  @override
+  State<_ColourSyncDialog> createState() => _ColourSyncDialogState();
+}
+
+enum _Direction { skip, export, import }
+
+class _ColourSyncDialogState extends State<_ColourSyncDialog> {
+  late List<ColourDifference> _differences = widget.state
+      .colourDifferences()
+      .where((d) => d.differs)
+      .toList();
+  final Map<String, _Direction> _choices = {};
+  bool _busy = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      title: const Text('Colours'),
+      content: SizedBox(
+        width: 640,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _differences.isEmpty
+                  ? 'Every project is the same colour on both sides.'
+                  : 'Send a colour to WorkingHours, or take the one it already '
+                        'uses.',
+              style: theme.textTheme.bodyMedium,
+            ),
+            if (_differences.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  TextButton(
+                    onPressed: () => _all(_Direction.export),
+                    child: const Text('Export all'),
+                  ),
+                  TextButton(
+                    onPressed: () => _all(_Direction.import),
+                    child: const Text('Import all'),
+                  ),
+                  TextButton(
+                    onPressed: () => _all(_Direction.skip),
+                    child: const Text('None'),
+                  ),
+                ],
+              ),
+              const Divider(),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final difference in _differences)
+                      ListTile(
+                        dense: true,
+                        title: Text(difference.project),
+                        subtitle: Text(
+                          difference.inLedger
+                              ? 'here ${difference.here ?? 'none'} · '
+                                    'WorkingHours ${difference.there}'
+                              : 'not in WorkingHours yet',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                        leading: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _Dot(colour: parseArgb(difference.here)),
+                            const SizedBox(width: 6),
+                            Icon(
+                              Icons.compare_arrows,
+                              size: 16,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                            const SizedBox(width: 6),
+                            _Dot(colour: parseArgb(difference.there)),
+                          ],
+                        ),
+                        trailing: SegmentedButton<_Direction>(
+                          showSelectedIcon: false,
+                          style: const ButtonStyle(
+                            visualDensity: VisualDensity.compact,
+                          ),
+                          segments: [
+                            const ButtonSegment(
+                              value: _Direction.skip,
+                              label: Text('Skip'),
+                            ),
+                            ButtonSegment(
+                              value: _Direction.export,
+                              label: const Text('Export'),
+                              enabled: difference.here != null,
+                            ),
+                            ButtonSegment(
+                              value: _Direction.import,
+                              label: const Text('Import'),
+                              enabled: difference.inLedger,
+                            ),
+                          ],
+                          selected: {
+                            _choices[difference.project] ?? _Direction.skip,
+                          },
+                          onSelectionChanged: (chosen) => setState(
+                            () => _choices[difference.project] = chosen.first,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _busy ? null : () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+        if (_differences.isNotEmpty)
+          FilledButton(
+            onPressed: _busy || _choices.values.every((d) => d == _Direction.skip)
+                ? null
+                : _apply,
+            child: const Text('Apply'),
+          ),
+      ],
+    );
+  }
+
+  void _all(_Direction direction) => setState(() {
+    for (final difference in _differences) {
+      final allowed = switch (direction) {
+        _Direction.export => difference.here != null,
+        _Direction.import => difference.inLedger,
+        _Direction.skip => true,
+      };
+      _choices[difference.project] = allowed ? direction : _Direction.skip;
+    }
+  });
+
+  Future<void> _apply() async {
+    setState(() => _busy = true);
+    final toImport = {
+      for (final entry in _choices.entries)
+        if (entry.value == _Direction.import) entry.key,
+    };
+    final toExport = {
+      for (final entry in _choices.entries)
+        if (entry.value == _Direction.export) entry.key,
+    };
+    String? trouble;
+    if (toImport.isNotEmpty) await widget.state.importColors(toImport);
+    if (toExport.isNotEmpty) {
+      final report = await widget.state.exportColors(toExport);
+      trouble = report.refusal;
+    }
+    if (!mounted) return;
+    setState(() {
+      _differences = widget.state
+          .colourDifferences()
+          .where((d) => d.differs)
+          .toList();
+      _choices.clear();
+      _busy = false;
+    });
+    if (trouble == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(trouble)));
+  }
+}
+
+class _Dot extends StatelessWidget {
+  const _Dot({required this.colour});
+
+  final Color? colour;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 16,
+    height: 16,
+    decoration: BoxDecoration(
+      color: colour ?? Colors.transparent,
+      borderRadius: BorderRadius.circular(4),
+      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+    ),
   );
 }

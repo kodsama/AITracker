@@ -7,6 +7,9 @@ import 'package:test/test.dart';
 const MacApp absent = MacApp(name: 'Absent', bundlePath: '/nonexistent');
 
 void main() {
+  // A test run has no business writing to the user's log.
+  Log.enabled = false;
+
   late Directory temp;
   late String workingHours;
   late String diarium;
@@ -48,14 +51,12 @@ void main() {
     ],
     links: links,
     workingHours: WorkingHoursSinkConfig(databasePath: workingHours),
-    diarium: DiariumSinkConfig(databasePath: diarium),
   );
 
   RenameResult rename(
     AiTrackerConfig from, {
     required String to,
     bool inWorkingHours = false,
-    bool inDiarium = false,
     bool dryRun = false,
     OverrideStore? overrides,
   }) => renameProject(
@@ -63,11 +64,9 @@ void main() {
     from: 'Byte Buddies - idbuddy',
     to: to,
     inWorkingHours: inWorkingHours,
-    inDiarium: inDiarium,
     dryRun: dryRun,
     overrides: overrides,
     workingHoursApp: absent,
-    diariumApp: absent,
   );
 
   test('renaming here alone keeps the ledger name, and writes down the link', () {
@@ -97,24 +96,6 @@ void main() {
     db.close();
   });
 
-  test('renaming in Diarium moves the linked tag', () {
-    final result = rename(
-      config(
-        links: const [
-          ProjectLink(name: 'Byte Buddies - idbuddy', diariumTag: 'idbuddy'),
-        ],
-      ),
-      to: 'ID Buddy',
-      inDiarium: true,
-    );
-
-    expect(result.notes, contains('renamed the Diarium tag "idbuddy"'));
-    expect(result.config.linkFor('ID Buddy')?.diariumTag, 'ID Buddy');
-    final db = sqlite3.open(diarium);
-    expect(db.select('select Value from Tags').single['Value'], 'ID Buddy');
-    db.close();
-  });
-
   test('hand edits naming the old project follow it', () {
     final overrides = OverrideStore()
       ..set('a|2026', const BlockOverride(project: 'Byte Buddies - idbuddy'))
@@ -126,12 +107,11 @@ void main() {
     expect(overrides['b|2026']!.project, 'Elsewhere - other');
   });
 
-  test('a preview changes neither store', () {
+  test('a preview changes nothing', () {
     final result = rename(
       config(),
       to: 'ID Buddy',
       inWorkingHours: true,
-      inDiarium: true,
       dryRun: true,
     );
 
@@ -158,8 +138,7 @@ void main() {
       inWorkingHours: true,
       dryRun: false,
       workingHoursApp: absent,
-      diariumApp: absent,
-    );
+      );
 
     expect(result.applied, isFalse);
     expect(result.refusal, contains('no WorkingHours database'));
@@ -172,8 +151,7 @@ void main() {
       to: 'Elsewhere - work',
       dryRun: false,
       workingHoursApp: absent,
-      diariumApp: absent,
-    );
+      );
 
     expect(result.config.linkFor('Elsewhere - work'), isNull);
     expect(result.config.rules.last.project, 'Elsewhere - work');

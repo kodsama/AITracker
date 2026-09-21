@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import 'config.dart';
+import 'log.dart';
 
 /// Whether the file at [databasePath] is the copy an app keeps open.
 ///
@@ -64,6 +65,7 @@ class MacApp {
   /// treat as "do not write".
   bool quit({Duration timeout = const Duration(seconds: 20)}) {
     if (!isRunning) return true;
+    Log.info('asking $name to quit');
     Process.runSync('/usr/bin/osascript', ['-e', 'quit app "$name"']);
     final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline)) {
@@ -76,6 +78,7 @@ class MacApp {
   /// Launches the app again, hidden so a scheduled run does not steal focus.
   void launch() {
     if (!Platform.isMacOS) return;
+    Log.info('starting $name again');
     Process.runSync('/usr/bin/open', ['-g', '-j', bundlePath]);
   }
 }

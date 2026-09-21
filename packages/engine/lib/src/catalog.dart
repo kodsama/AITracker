@@ -11,7 +11,7 @@ class LedgerProject {
     required this.name,
     required this.hidden,
     this.color,
-    this.customer,
+    this.company,
   });
 
   /// Project name, e.g. `Sigma - Axis Camera`.
@@ -25,14 +25,14 @@ class LedgerProject {
 
   /// Tag attached to the project, which is how the ledger records who the work
   /// is for. Null when no tag is linked.
-  final String? customer;
+  final String? company;
 
   /// JSON form.
   Map<String, Object?> toJson() => {
     'name': name,
     'hidden': hidden,
     if (color != null) 'color': color,
-    if (customer != null) 'customer': customer,
+    if (company != null) 'company': company,
   };
 }
 
@@ -58,8 +58,7 @@ class Catalog {
   const Catalog({
     this.projects = const [],
     this.tags = const [],
-    this.customers = const [],
-    this.diariumTags = const [],
+    this.companies = const [],
   });
 
   /// WorkingHours projects.
@@ -69,44 +68,30 @@ class Catalog {
   final List<LedgerTag> tags;
 
   /// Tags WorkingHours has attached to a project, which in this ledger is what
-  /// a customer is: `Sigma`, `Additude`, `RiACT`.
-  final List<String> customers;
-
-  /// Diarium tags.
-  final List<LedgerTag> diariumTags;
+  /// a company is: `Sigma`, `Additude`, `RiACT`.
+  final List<String> companies;
 
   /// JSON form, as the MCP tool reports it.
   Map<String, Object?> toJson() => {
     'projects': [for (final project in projects) project.toJson()],
     'tags': [for (final tag in tags) tag.toJson()],
-    'customers': customers,
-    'diarium_tags': [for (final tag in diariumTags) tag.toJson()],
+    'companies': companies,
   };
 
-  /// Reads both stores. Either being absent or unreadable yields empty lists
+  /// Reads the ledger. A store that is absent or unreadable yields empty lists
   /// rather than an error: a catalog is a convenience, never a precondition.
   ///
-  /// Reading is safe while the apps are running; only writing is not.
-  static Catalog read(AiTrackerConfig config) {
-    final ledger = _readWorkingHours(
-      AiTrackerConfig.resolveHome(config.workingHours.databasePath),
-    );
-    return Catalog(
-      projects: ledger.projects,
-      tags: ledger.tags,
-      customers: ledger.customers,
-      diariumTags: _readDiariumTags(
-        AiTrackerConfig.resolveHome(config.diarium.databasePath),
-      ),
-    );
-  }
+  /// Reading is safe while WorkingHours is running; only writing is not.
+  static Catalog read(AiTrackerConfig config) => _readWorkingHours(
+    AiTrackerConfig.resolveHome(config.workingHours.databasePath),
+  );
 
   static Catalog _readWorkingHours(String path) {
     if (!File(path).existsSync()) return const Catalog();
     Database? db;
     try {
       db = sqlite3.open(path, mode: OpenMode.readOnly);
-      final customers = <String>{};
+      final companies = <String>{};
       final links = <String, String>{};
       for (final row in db.select(
         'select p.Name as project, t.Value as tag from ProjectTags pt '
@@ -114,7 +99,7 @@ class Catalog {
         'join Tags t on t.TagId = pt.TagId',
       )) {
         final tag = '${row['tag']}';
-        customers.add(tag);
+        companies.add(tag);
         links['${row['project']}'] = tag;
       }
       return Catalog(
@@ -126,7 +111,7 @@ class Catalog {
               name: '${row['Name']}',
               hidden: (row['Hidden'] as int? ?? 0) != 0,
               color: row['Color'] as String?,
-              customer: links['${row['Name']}'],
+              company: links['${row['Name']}'],
             ),
         ],
         tags: [
@@ -138,7 +123,7 @@ class Catalog {
               hidden: (row['Hidden'] as int? ?? 0) != 0,
             ),
         ],
-        customers: customers.toList()..sort(),
+        companies: companies.toList()..sort(),
       );
     } on SqliteException {
       return const Catalog();
@@ -147,19 +132,4 @@ class Catalog {
     }
   }
 
-  static List<LedgerTag> _readDiariumTags(String path) {
-    if (!File(path).existsSync()) return const [];
-    Database? db;
-    try {
-      db = sqlite3.open(path, mode: OpenMode.readOnly);
-      return [
-        for (final row in db.select('select Value from Tags order by Value'))
-          LedgerTag(value: '${row['Value']}'),
-      ];
-    } on SqliteException {
-      return const [];
-    } finally {
-      db?.close();
-    }
-  }
 }

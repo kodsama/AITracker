@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:aitracker_mcp/aitracker_mcp.dart';
@@ -7,11 +8,39 @@ import 'package:flutter/material.dart' show Brightness, Color;
 
 import '../theme.dart';
 
+/// How the hours are counted when two sessions overlap.
+enum CountMode {
+  /// A minute belongs to one project, so the totals add up to the clock. This
+  /// is what a timesheet needs, and what every export writes.
+  wallClock('Wall clock', 'A minute counts once, whoever was working'),
+
+  /// Each project keeps its own timeline, so an hour worked in two
+  /// repositories at once counts for both.
+  perProject('Per project', 'Parallel sessions count for each project');
+
+  const CountMode(this.label, this.help);
+
+  /// Name on the toggle.
+  final String label;
+
+  /// One line of explanation under it.
+  final String help;
+}
+
 /// Everything the windows read and write: the configuration, the blocks read
 /// out of the transcripts, what is selected, and the MCP endpoint.
 class AppState extends ChangeNotifier {
-  /// Creates the state. [configPath] and [overridesPath] exist for the tests.
-  AppState({this.configPath, this.overridesPath});
+  /// Creates the state.
+  ///
+  /// [configPath] and [overridesPath] exist for the tests, as does
+  /// [background]: scanning off the UI thread is what keeps the window
+  /// responsive, and what makes a widget test wait on something it cannot
+  /// pump.
+  AppState({
+    this.configPath,
+    this.overridesPath,
+    this.background = true,
+  });
 
   /// Where the configuration is read from, null for the default location.
   final String? configPath;
@@ -19,50 +48,101 @@ class AppState extends ChangeNotifier {
   /// Where the hand edits are read from, null for the default location.
   final String? overridesPath;
 
+  /// Whether a scan runs in its own isolate.
+  final bool background;
+
+  /// Where the MCP key is kept, null for the default location.
+  String? get tokenPath => configPath == null
+      ? null
+      : '${configPath!.substring(0, configPath!.lastIndexOf('/'))}/mcp-token';
+
   AiTrackerConfig _config = const AiTrackerConfig(sources: []);
   OverrideStore _overrides = OverrideStore();
   Catalog _catalog = const Catalog();
   List<TrackedBlock> _blocks = const [];
+  List<TrackedBlock> _exclusive = const [];
   final Set<String> _selected = {};
   PeriodKind _periodKind = PeriodKind.thisMonth;
   DateTime? _customStart;
   DateTime? _customEnd;
+  CountMode _mode = CountMode.wallClock;
+  String _query = '';
   bool _loading = true;
+  int _scan = 0;
+  String? _trouble;
+  List<SyncReport> _lastAutomatic = const [];
   ServerSocket? _mcp;
 
   /// Current configuration.
   AiTrackerConfig get config => _config;
 
-  /// Blocks in the window, newest first.
-  List<TrackedBlock> get blocks => _blocks;
+  /// Blocks in the window, newest first, after the search box.
+  List<TrackedBlock> get blocks {
+    if (_query.trim().isEmpty) return _blocks;
+    final needle = _query.trim().toLowerCase();
+    return [
+      for (final block in _blocks)
+        if ('${block.project ?? ''} ${block.description} ${block.block.directory}'
+            .toLowerCase()
+            .contains(needle))
+          block,
+    ];
+  }
+
+  /// Every block in the window, whatever the search box says.
+  List<TrackedBlock> get allBlocks => _blocks;
 
   /// Keys of the selected blocks.
   Set<String> get selected => _selected;
 
   /// Window the screens are showing.
-  Period get period => periodFor(
-    _periodKind,
-    start: _customStart,
-    end: _customEnd,
-  );
+  Period get period =>
+      periodFor(_periodKind, start: _customStart, end: _customEnd);
 
   /// Which named window is selected.
   PeriodKind get periodKind => _periodKind;
 
-  /// What the two apps already hold: projects, tags, customers, journal tags.
+  /// How overlapping sessions are counted.
+  CountMode get mode => _mode;
+
+  /// What the search box holds.
+  String get query => _query;
+
+  /// What the two apps already hold: projects, tags, companies.
   Catalog get catalog => _catalog;
 
   /// Whether a scan is in flight.
   bool get loading => _loading;
 
+  /// What went wrong last, for the banner. Null when all is well.
+  String? get trouble => _trouble;
+
+  /// What the sinks set to file by themselves did on the last scan.
+  List<SyncReport> get lastAutomatic => _lastAutomatic;
+
   /// Port the MCP endpoint is listening on, null when it is off.
   int? get mcpPort => _mcp?.port;
 
   /// Time per project in the window.
-  Map<String, Duration> get byProject => totalsByProject(_blocks);
+  Map<String, Duration> get byProject => totalsByProject(blocks);
 
   /// Directories in the window that no rule covers.
-  Map<String, Duration> get strays => unmapped(_blocks);
+  Map<String, Duration> get strays => unmapped(blocks);
+
+  /// Total billable time in the window, as the current mode counts it.
+  Duration get total =>
+      byProject.values.fold(Duration.zero, (sum, d) => sum + d);
+
+  /// Time the assistant was working, counting a minute once however many
+  /// sessions were in it.
+  Duration get wallClock =>
+      unionDuration([for (final block in _exclusive) block.block]);
+
+  /// Tokens the window's exchanges reported.
+  TokenUsage get tokens => _exclusive.fold(
+    TokenUsage.zero,
+    (sum, block) => sum + block.block.tokens,
+  );
 
   /// Every project name in play: the rules, the mapping, the hand edits and
   /// what WorkingHours already holds.
@@ -79,12 +159,34 @@ class AppState extends ChangeNotifier {
     return names.toList()..sort();
   }
 
+  /// Companies the ledger knows, plus the ones already mapped.
+  List<String> get knownCompanies {
+    final names = <String>{
+      ..._catalog.companies,
+      for (final link in _config.links)
+        if (link.company != null) link.company!,
+    };
+    return names.toList()..sort();
+  }
+
   /// The hand edit on [key], if there is one.
   BlockOverride? overrideFor(String key) => _overrides[key];
 
-  /// Total billable time in the window.
-  Duration get total =>
-      byProject.values.fold(Duration.zero, (sum, d) => sum + d);
+  /// Colour a project is drawn in: the one it was given, else the one the
+  /// ledger draws it in, else its slot in the chart palette.
+  Color colorFor(String project, Brightness brightness) {
+    final chosen = parseArgb(_config.linkFor(project)?.color);
+    if (chosen != null) return chosen;
+    final link = _config.linkFor(project);
+    final ledgerName = link?.workingHoursProject ?? project;
+    for (final entry in _catalog.projects) {
+      if (entry.name != ledgerName) continue;
+      final colour = parseArgb(entry.color);
+      if (colour != null) return colour;
+    }
+    if (project == unmappedLabel) return otherSeries(brightness);
+    return seriesColor(knownProjects.indexOf(project), brightness);
+  }
 
   /// Reads the configuration and scans the transcripts.
   Future<void> load() async {
@@ -96,15 +198,82 @@ class AppState extends ChangeNotifier {
   }
 
   /// Rescans the transcripts with the current configuration.
+  ///
+  /// The scan reads hundreds of files, so it runs off the UI thread; a scan
+  /// started while one is running wins, and the older result is dropped rather
+  /// than flickering onto the screen.
   Future<void> refresh() async {
+    final generation = ++_scan;
     _loading = true;
+    _trouble = null;
     notifyListeners();
-    final tracking = AiTracker(config: _config, overrides: _overrides);
+
+    final config = _config;
+    final overrides = _overrides;
     final window = period;
-    final found = tracking.blocks(since: window.start, until: window.end);
-    _blocks = found.reversed.toList();
-    _selected.removeWhere((key) => !_blocks.any((b) => b.key == key));
+    ({List<TrackedBlock> exclusive, List<TrackedBlock> perProject}) job() {
+        final tracking = AiTracker(config: config, overrides: overrides);
+        final events = TranscriptScanner(config.sources).scan(
+          since: window.start,
+        );
+        List<TrackedBlock> resolve(List<WorkBlock> blocks) => [
+          for (final block in blocks)
+            if (block.start.isBefore(window.end)) tracking.resolve(block),
+        ];
+        return (
+          exclusive: resolve(
+            buildBlocks(
+              events,
+              idleGap: config.idleGap,
+              minBlock: config.minBlock,
+            ),
+          ),
+          perProject: resolve(
+            buildProjectBlocks(
+              events,
+              idleGap: config.idleGap,
+              minBlock: config.minBlock,
+            ),
+          ),
+        );
+    }
+
+    try {
+      final found = background ? await Isolate.run(job) : job();
+      if (generation != _scan) return;
+      _exclusive = found.exclusive;
+      _blocks =
+          (_mode == CountMode.perProject ? found.perProject : found.exclusive)
+              .reversed
+              .toList();
+      _selected.removeWhere((key) => !_blocks.any((b) => b.key == key));
+    } on Object catch (error) {
+      if (generation != _scan) return;
+      _trouble = 'Could not read the transcripts: $error';
+    }
     _loading = false;
+    notifyListeners();
+    await _fileAutomatically();
+  }
+
+  /// Runs the sinks that file by themselves.
+  ///
+  /// An automatic run never closes an app: if WorkingHours is open it is left
+  /// alone and said so, because taking someone's timer away in the background
+  /// is not a thing a background job should do.
+  Future<void> _fileAutomatically() async {
+    final automatic = _config.automaticSinks;
+    if (automatic.isEmpty || _exclusive.isEmpty) return;
+    try {
+      _lastAutomatic = syncAll(
+        _config,
+        _exclusive,
+        dryRun: false,
+        only: automatic,
+      );
+    } on Object catch (error) {
+      _trouble = 'Automatic filing failed: $error';
+    }
     notifyListeners();
   }
 
@@ -122,6 +291,19 @@ class AppState extends ChangeNotifier {
     await refresh();
   }
 
+  /// Switches how overlapping sessions are counted.
+  Future<void> setMode(CountMode mode) async {
+    _mode = mode;
+    await refresh();
+  }
+
+  /// Filters the list.
+  void setQuery(String query) {
+    _query = query;
+    _selected.removeWhere((key) => !blocks.any((b) => b.key == key));
+    notifyListeners();
+  }
+
   /// Selects or deselects one block.
   void toggle(String key) {
     if (!_selected.remove(key)) _selected.add(key);
@@ -130,13 +312,39 @@ class AppState extends ChangeNotifier {
 
   /// Selects every block on screen, or clears the selection.
   void toggleAll() {
-    if (_selected.length == _blocks.length) {
+    if (_selected.length == blocks.length) {
       _selected.clear();
     } else {
       _selected
         ..clear()
-        ..addAll(_blocks.map((b) => b.key));
+        ..addAll(blocks.map((b) => b.key));
     }
+    notifyListeners();
+  }
+
+  /// Clears the selection.
+  void selectNone() {
+    _selected.clear();
+    notifyListeners();
+  }
+
+  /// Adds every block of [day] to the selection.
+  void selectDay(DateTime day) {
+    _selected.addAll(
+      blocks.where((b) => b.day == day).map((b) => b.key),
+    );
+    notifyListeners();
+  }
+
+  /// Adds every block of the week [day] falls in to the selection.
+  void selectWeek(DateTime day) {
+    final monday = DateTime(day.year, day.month, day.day - (day.weekday - 1));
+    final next = monday.add(const Duration(days: 7));
+    _selected.addAll(
+      blocks
+          .where((b) => !b.day.isBefore(monday) && b.day.isBefore(next))
+          .map((b) => b.key),
+    );
     notifyListeners();
   }
 
@@ -158,25 +366,6 @@ class AppState extends ChangeNotifier {
     await refresh();
   }
 
-  /// Colour a project is drawn in: the one it was given, else the one the
-  /// ledger draws it in, else its slot in the chart palette.
-  ///
-  /// The slot follows the project name, not its rank in the current window, so
-  /// a filter that drops a project never repaints the others.
-  Color colorFor(String project, Brightness brightness) {
-    final chosen = parseArgb(_config.linkFor(project)?.color);
-    if (chosen != null) return chosen;
-    final link = _config.linkFor(project);
-    final ledgerName = link?.workingHoursProject ?? project;
-    for (final entry in _catalog.projects) {
-      if (entry.name != ledgerName) continue;
-      final colour = parseArgb(entry.color);
-      if (colour != null) return colour;
-    }
-    if (project == unmappedLabel) return otherSeries(brightness);
-    return seriesColor(knownProjects.indexOf(project), brightness);
-  }
-
   /// Adds or replaces the mapping for a project.
   Future<void> saveLink(ProjectLink link) async {
     final links = [
@@ -187,12 +376,11 @@ class AppState extends ChangeNotifier {
     await save(_config.copyWith(links: links));
   }
 
-  /// Renames a project, carrying the name into the apps that were asked for.
+  /// Renames a project, carrying the name into the ledger if asked.
   Future<RenameResult> rename(
     String from,
     String to, {
     bool inWorkingHours = false,
-    bool inDiarium = false,
     bool quitApps = true,
   }) async {
     final result = renameProject(
@@ -200,7 +388,6 @@ class AppState extends ChangeNotifier {
       from: from,
       to: to,
       inWorkingHours: inWorkingHours,
-      inDiarium: inDiarium,
       dryRun: false,
       quitApps: quitApps,
       overrides: _overrides,
@@ -212,12 +399,21 @@ class AppState extends ChangeNotifier {
     return result;
   }
 
-  /// Pushes the mapped colours into WorkingHours.
-  Future<SyncReport> pushColors({bool quitApps = true}) async {
+  /// How each project's colour compares with the ledger's.
+  List<ColourDifference> colourDifferences() =>
+      compareColors(_config, _catalog);
+
+  /// Copies the ledger's colours into the mapping.
+  Future<void> importColors(Set<String> projects) async {
+    await save(pullColors(_config, colourDifferences(), only: projects));
+  }
+
+  /// Writes the mapped colours into the ledger.
+  Future<SyncReport> exportColors(Set<String> projects) async {
     final report = WorkingHoursSink(
       config: _config.workingHours,
       links: _config.links,
-    ).applyColors(dryRun: false, quitApp: quitApps);
+    ).applyColors(dryRun: false, quitApp: true, only: projects);
     _catalog = Catalog.read(_config);
     notifyListeners();
     return report;
@@ -237,31 +433,55 @@ class AppState extends ChangeNotifier {
   }
 
   /// Previews or performs the writes, and returns what each sink reported.
-  Future<List<SyncReport>> sync({
+  ///
+  /// Exports always use the wall-clock blocks: a timesheet cannot hold the same
+  /// minute twice, whatever the screen is showing.
+  Future<List<SyncReport>> export({
     required bool apply,
     bool quitApps = false,
+    Set<String> only = const {},
   }) async {
     final reports = syncAll(
       _config,
-      _blocks,
+      _exclusive,
       dryRun: !apply,
       quitApps: quitApps,
+      only: only,
     );
     if (apply) await refresh();
     return reports;
   }
 
+  /// The key a networked client must present. Issued on first use.
+  String get mcpToken => McpToken.ensure(tokenPath);
+
+  /// Issues a new key, which drops every client using the old one.
+  Future<String> regenerateMcpToken() async {
+    final token = McpToken.issue(tokenPath);
+    if (_mcp != null) {
+      await stopMcp();
+      await startMcp();
+    }
+    notifyListeners();
+    return token;
+  }
+
   /// Starts the MCP endpoint on the configured port.
   Future<void> startMcp() async {
-    _mcp = await serveTcp(
-      McpServer(
-        tools: buildTools(
-          configPath: configPath,
-          overridesPath: overridesPath,
+    try {
+      _mcp = await serveTcp(
+        McpServer(
+          tools: buildTools(
+            configPath: configPath,
+            overridesPath: overridesPath,
+          ),
+          requiredToken: McpToken.ensure(tokenPath),
         ),
-      ),
-      port: _config.mcpPort,
-    );
+        port: _config.mcpPort,
+      );
+    } on Object catch (error) {
+      _trouble = 'Could not listen on port ${_config.mcpPort}: $error';
+    }
     notifyListeners();
   }
 

@@ -5,6 +5,9 @@ import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:test/test.dart';
 
 void main() {
+  // A test run has no business writing to the user's log.
+  Log.enabled = false;
+
   late Directory temp;
   late String configPath;
   late StringBuffer out;
@@ -81,7 +84,7 @@ void main() {
   });
 
   test('--only narrows the run, and an empty set is an error', () async {
-    expect(await cli(['sync', '--only', 'diarium']), 1);
+    expect(await cli(['sync', '--only', 'calendar']), 1);
     expect(err.toString(), contains('no sink is enabled'));
   });
 

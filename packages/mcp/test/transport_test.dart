@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:aitracker_mcp/aitracker_mcp.dart';
 import 'package:test/test.dart';
 
@@ -22,6 +23,9 @@ class _Recorder implements IOSink {
 }
 
 void main() {
+  // A test run has no business writing to the user's log.
+  Log.enabled = false;
+
   final server = McpServer(
     tools: [
       McpTool(

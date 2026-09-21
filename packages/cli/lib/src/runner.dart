@@ -77,8 +77,9 @@ Future<int> run(
         stdoutSink.writeln('  ${rule.match} -> ${rule.project}');
       }
       stdoutSink.writeln(
-        'sinks: workinghours=${config.workingHours.enabled} '
-        'diarium=${config.diarium.enabled} tabular=${config.tabular.enabled}',
+        'targets: workinghours=${config.workingHours.enabled} '
+        'calendar=${config.calendar.enabled} '
+        'spreadsheets=${config.tabular.enabled}',
       );
       return 0;
 

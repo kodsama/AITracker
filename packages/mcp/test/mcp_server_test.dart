@@ -6,22 +6,10 @@ import 'package:aitracker_mcp/aitracker_mcp.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
-/// The Diarium tables this tool touches: the entry, its tags, and the tag list.
-void _diariumSchema(String path) {
-  sqlite3.open(path)
-    ..execute('''
-      create table Entries (DiaryEntryId bigint primary key not null,
-        Heading varchar not null, Text varchar not null, Rating integer not null,
-        Latitude float not null, Longitude float not null);
-      create table EntryTags (DiaryEntryId bigint not null,
-        DiaryTagId integer not null, TrackingValue varchar);
-      create table Tags (DiaryTagId integer primary key autoincrement not null,
-        Value varchar not null, Type integer not null, Color varchar, Icon varchar);
-    ''')
-    ..close();
-}
-
 void main() {
+  // A test run has no business writing to the user's log.
+  Log.enabled = false;
+
   late Directory temp;
   late String configPath;
   late String overridesPath;
@@ -102,7 +90,7 @@ void main() {
           'list_hours',
           'summarize_hours',
           'sync_workinghours',
-          'sync_diarium',
+          'sync_calendar',
           'export_spreadsheet',
           'edit_blocks',
         ]),
@@ -262,9 +250,9 @@ void main() {
         'name': 'RiACT - Code',
         'hidden': false,
         'color': '#FF69BD0D',
-        'customer': 'RiACT',
+        'company': 'RiACT',
       });
-      expect(result['customers'], ['RiACT']);
+      expect(result['companies'], ['RiACT']);
     });
 
     test('set_project_link maps a project across the apps and keeps what it is '
@@ -272,9 +260,9 @@ void main() {
       await call('set_project_link', {
         'name': 'Byte Buddies - idbuddy',
         'working_hours': 'BB - idbuddy',
-        'customer': 'Byte Buddies',
+        'company': 'Byte Buddies',
         'working_hours_tags': ['Programming'],
-        'diarium_tag': 'idbuddy',
+        'calendar_label': 'idbuddy',
         'color': '#FF34D399',
       });
       await call('set_project_link', {
@@ -284,9 +272,9 @@ void main() {
 
       final link = AiTrackerConfig.load(configPath).linkFor('Byte Buddies - idbuddy')!;
       expect(link.workingHours, 'BB - idbuddy');
-      expect(link.customer, 'Byte Buddies');
+      expect(link.company, 'Byte Buddies');
       expect(link.workingHoursTags, ['Programming']);
-      expect(link.diariumTag, 'idbuddy');
+      expect(link.calendarLabel, 'idbuddy');
       expect(link.color, '#FF6C4AB6');
     });
 
@@ -379,12 +367,10 @@ void main() {
         ''')
         ..execute("insert into Settings values ('WatchStarted', '')")
         ..close();
-      final diarium = '${temp.path}/diarium.db';
-      _diariumSchema(diarium);
       AiTrackerConfig.load(configPath)
           .copyWith(
             workingHours: WorkingHoursSinkConfig(databasePath: workingHours),
-            diarium: DiariumSinkConfig(enabled: true, databasePath: diarium),
+            calendar: const CalendarSinkConfig(),
             tabular: TabularSinkConfig(
               enabled: true,
               csvPath: '${temp.path}/hours.csv',
@@ -395,23 +381,16 @@ void main() {
 
       final preview = await call('sync_all');
       expect(preview['ok'], isTrue);
-      expect((preview['sinks']! as List), hasLength(3));
+      expect((preview['sinks']! as List), hasLength(2));
 
       final written = await call('sync_all', {'dry_run': false});
 
       final sinks = (written['sinks']! as List).cast<Map<String, Object?>>();
-      expect(sinks.map((s) => s['sink']), [
-        'workinghours',
-        'diarium',
-        'tabular',
-      ]);
+      expect(sinks.map((s) => s['sink']), ['workinghours', 'tabular']);
       expect(sinks.every((s) => s['applied'] == true), isTrue);
       final wh = sqlite3.open(workingHours);
       expect(wh.select('select * from WorkUnits'), hasLength(1));
       wh.close();
-      final journal = sqlite3.open(diarium);
-      expect(journal.select('select * from Entries'), hasLength(1));
-      journal.close();
       expect(File('${temp.path}/hours.csv').existsSync(), isTrue);
     });
 
@@ -446,20 +425,6 @@ void main() {
 
       expect(result['ok'], isFalse);
       expect(result['refusal'], contains('no WorkingHours database'));
-    });
-
-    test('sync_diarium previews the day it would journal', () async {
-      final path = '${temp.path}/diarium.db';
-      _diariumSchema(path);
-      AiTrackerConfig.load(configPath)
-          .copyWith(diarium: DiariumSinkConfig(databasePath: path))
-          .save(configPath);
-
-      final result = await call('sync_diarium');
-
-      expect(result['ok'], isTrue);
-      expect(result['applied'], isFalse);
-      expect(result['notes'], ['would create the 2026-09-01 entry']);
     });
 
     test('a tool that throws comes back as a tool error, not a dead server',

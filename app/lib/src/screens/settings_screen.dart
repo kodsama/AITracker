@@ -1,9 +1,14 @@
+import 'dart:io';
+
 import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
 
 import '../state/app_state.dart';
+import '../widgets/folder_picker.dart';
 
-/// Sources, thresholds, sinks and the MCP endpoint.
+/// Sources, thresholds, where each export goes, and the MCP endpoint.
 class SettingsScreen extends StatelessWidget {
   /// Creates the screen.
   const SettingsScreen({required this.state, super.key});
@@ -32,7 +37,7 @@ class SettingsScreen extends StatelessWidget {
                 value: config.idleGap.inMinutes.toDouble(),
                 min: 2,
                 max: 60,
-                onChanged: (value) => state.save(
+                onSettled: (value) => state.save(
                   config.copyWith(idleGap: Duration(minutes: value.round())),
                 ),
               ),
@@ -42,8 +47,35 @@ class SettingsScreen extends StatelessWidget {
                 value: config.minBlock.inMinutes.toDouble(),
                 min: 1,
                 max: 30,
-                onChanged: (value) => state.save(
+                onSettled: (value) => state.save(
                   config.copyWith(minBlock: Duration(minutes: value.round())),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Overlapping sessions', style: theme.textTheme.bodyMedium),
+                    const SizedBox(height: 8),
+                    SegmentedButton<CountMode>(
+                      segments: [
+                        for (final mode in CountMode.values)
+                          ButtonSegment(value: mode, label: Text(mode.label)),
+                      ],
+                      selected: {state.mode},
+                      onSelectionChanged: (chosen) =>
+                          state.setMode(chosen.first),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${state.mode.help}. Exports always use wall clock: a '
+                      'timesheet cannot hold the same minute twice.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -52,45 +84,108 @@ class SettingsScreen extends StatelessWidget {
 
         _Section(
           title: 'Transcripts',
-          subtitle: 'Read-only. These are the folders the assistant writes to.',
+          subtitle: 'The folders an assistant writes its sessions to. Claude '
+              'Code and the Gemini and Antigravity CLIs are read.',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               for (final source in config.sources)
                 ListTile(
                   dense: true,
-                  leading: const Icon(Icons.folder_outlined, size: 20),
+                  leading: Icon(
+                    Directory(source).existsSync()
+                        ? Icons.folder_outlined
+                        : Icons.folder_off_outlined,
+                    size: 20,
+                    color: Directory(source).existsSync()
+                        ? null
+                        : theme.colorScheme.error,
+                  ),
                   title: Text(source),
+                  subtitle: Directory(source).existsSync()
+                      ? null
+                      : const Text('Not there any more'),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        tooltip: 'Edit',
+                        icon: const Icon(Icons.edit_outlined, size: 18),
+                        onPressed: () => _editSource(context, state, source),
+                      ),
+                      IconButton(
+                        tooltip: 'Remove',
+                        icon: const Icon(Icons.close, size: 18),
+                        onPressed: () => state.save(
+                          config.copyWith(
+                            sources: [
+                              for (final other in config.sources)
+                                if (other != source) other,
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               if (config.sources.isEmpty)
                 const ListTile(
                   dense: true,
-                  title: Text('No transcript folder found.'),
+                  title: Text('No transcript folder yet. Add one.'),
                 ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: FilledButton.tonalIcon(
+                    onPressed: () => _editSource(context, state, null),
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Add folder'),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
 
         _Section(
           title: 'WorkingHours',
+          subtitle: 'Work units, one per block of attention.',
           child: Column(
             children: [
               SwitchListTile(
                 value: config.workingHours.enabled,
                 onChanged: (value) => state.save(
                   config.copyWith(
-                    workingHours: WorkingHoursSinkConfig(
-                      enabled: value,
-                      databasePath: config.workingHours.databasePath,
-                      descriptionTemplate:
-                          config.workingHours.descriptionTemplate,
-                      color: config.workingHours.color,
-                    ),
+                    workingHours: _workingHours(config, enabled: value),
                   ),
                 ),
-                title: const Text('File work units'),
-                subtitle: Text(
-                  AiTrackerConfig.resolveHome(config.workingHours.databasePath),
+                title: const Text('Export to WorkingHours'),
+              ),
+              SwitchListTile(
+                value: config.workingHours.automatic,
+                onChanged: config.workingHours.enabled
+                    ? (value) => state.save(
+                        config.copyWith(
+                          workingHours: _workingHours(config, automatic: value),
+                        ),
+                      )
+                    : null,
+                title: const Text('Keep it up to date by itself'),
+                subtitle: const Text(
+                  'Files new blocks after each scan. Skipped while '
+                  'WorkingHours is open, since it would be overwritten.',
+                ),
+              ),
+              _PathField(
+                label: 'Database',
+                value: AiTrackerConfig.resolveHome(
+                  config.workingHours.databasePath,
+                ),
+                onPicked: (value) => state.save(
+                  config.copyWith(
+                    workingHours: _workingHours(config, databasePath: value),
+                  ),
                 ),
               ),
               _Field(
@@ -99,11 +194,9 @@ class SettingsScreen extends StatelessWidget {
                 value: config.workingHours.descriptionTemplate,
                 onSubmitted: (value) => state.save(
                   config.copyWith(
-                    workingHours: WorkingHoursSinkConfig(
-                      enabled: config.workingHours.enabled,
-                      databasePath: config.workingHours.databasePath,
+                    workingHours: _workingHours(
+                      config,
                       descriptionTemplate: value,
-                      color: config.workingHours.color,
                     ),
                   ),
                 ),
@@ -113,25 +206,45 @@ class SettingsScreen extends StatelessWidget {
         ),
 
         _Section(
-          title: 'Diarium',
+          title: 'Calendar, which is how Diarium sees it',
+          subtitle: 'One all-day event per worked day, in a calendar of its '
+              'own. Diarium reads system calendars as a source, so switch this '
+              'calendar on in Diarium and the hours show up there beside '
+              'WorkingHours. Nothing is ever written into Diarium itself.',
           child: Column(
             children: [
               SwitchListTile(
-                value: config.diarium.enabled,
+                value: config.calendar.enabled,
                 onChanged: (value) => state.save(
-                  config.copyWith(
-                    diarium: DiariumSinkConfig(
-                      enabled: value,
-                      databasePath: config.diarium.databasePath,
-                      heading: config.diarium.heading,
-                      entryTimeOfDay: config.diarium.entryTimeOfDay,
-                    ),
-                  ),
+                  config.copyWith(calendar: _calendar(config, enabled: value)),
                 ),
-                title: const Text('Write a daily journal entry'),
-                subtitle: Text(
-                  'One entry a day at ${config.diarium.entryTimeOfDay}, '
-                  'headed "${config.diarium.heading}", rewritten in place.',
+                title: const Text('Publish the calendar'),
+                subtitle: Text(_helperState()),
+              ),
+              SwitchListTile(
+                value: config.calendar.automatic,
+                onChanged: config.calendar.enabled
+                    ? (value) => state.save(
+                        config.copyWith(
+                          calendar: _calendar(config, automatic: value),
+                        ),
+                      )
+                    : null,
+                title: const Text('Keep it up to date by itself'),
+              ),
+              _Field(
+                label: 'Calendar name',
+                value: config.calendar.calendarName,
+                onSubmitted: (value) => state.save(
+                  config.copyWith(calendar: _calendar(config, name: value)),
+                ),
+              ),
+              _Field(
+                label: 'Event title',
+                help: '{hours} is the day\'s total',
+                value: config.calendar.titleTemplate,
+                onSubmitted: (value) => state.save(
+                  config.copyWith(calendar: _calendar(config, title: value)),
                 ),
               ),
             ],
@@ -145,18 +258,33 @@ class SettingsScreen extends StatelessWidget {
               SwitchListTile(
                 value: config.tabular.enabled,
                 onChanged: (value) => state.save(
-                  config.copyWith(
-                    tabular: TabularSinkConfig(
-                      enabled: value,
-                      csvPath: config.tabular.csvPath,
-                      xlsxPath: config.tabular.xlsxPath,
-                    ),
-                  ),
+                  config.copyWith(tabular: _tabular(config, enabled: value)),
                 ),
                 title: const Text('Export CSV and Excel'),
-                subtitle: Text(
-                  '${AiTrackerConfig.resolveHome(config.tabular.csvPath)}\n'
-                  '${AiTrackerConfig.resolveHome(config.tabular.xlsxPath)}',
+              ),
+              SwitchListTile(
+                value: config.tabular.automatic,
+                onChanged: config.tabular.enabled
+                    ? (value) => state.save(
+                        config.copyWith(
+                          tabular: _tabular(config, automatic: value),
+                        ),
+                      )
+                    : null,
+                title: const Text('Rewrite them by themselves'),
+              ),
+              _PathField(
+                label: 'CSV',
+                value: AiTrackerConfig.resolveHome(config.tabular.csvPath),
+                onPicked: (value) => state.save(
+                  config.copyWith(tabular: _tabular(config, csv: value)),
+                ),
+              ),
+              _PathField(
+                label: 'Excel',
+                value: AiTrackerConfig.resolveHome(config.tabular.xlsxPath),
+                onPicked: (value) => state.save(
+                  config.copyWith(tabular: _tabular(config, xlsx: value)),
                 ),
               ),
             ],
@@ -168,7 +296,7 @@ class SettingsScreen extends StatelessWidget {
           subtitle:
               'Serve the engine to an assistant over JSON-RPC while this app '
               'is open. The same tools are available over stdio through the '
-              'aitracker_mcp binary.',
+              'aitracker_mcp binary, which needs no key.',
           child: Column(
             children: [
               SwitchListTile(
@@ -190,6 +318,38 @@ class SettingsScreen extends StatelessWidget {
                   if (port != null) state.save(config.copyWith(mcpPort: port));
                 },
               ),
+              ListTile(
+                title: const Text('Key'),
+                isThreeLine: true,
+                subtitle: Text(
+                  'A client on the socket presents this as '
+                  'initialize.params.api_key. Anything on this machine can '
+                  'reach the port, so it is not optional.\n${state.mcpToken}',
+                  style: theme.textTheme.bodySmall,
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: 'Copy',
+                      icon: const Icon(Icons.copy, size: 18),
+                      onPressed: () async {
+                        await Clipboard.setData(
+                          ClipboardData(text: state.mcpToken),
+                        );
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Key copied')),
+                        );
+                      },
+                    ),
+                    TextButton(
+                      onPressed: state.regenerateMcpToken,
+                      child: const Text('Regenerate'),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -204,6 +364,71 @@ class SettingsScreen extends StatelessWidget {
       ],
     );
   }
+
+  String _helperState() {
+    const sink = CalendarSink(config: CalendarSinkConfig());
+    return sink.helper == null
+        ? 'The EventKit helper is not built yet: run '
+              'tool/build-calendar-helper.sh'
+        : 'Publishing through ${sink.helper}';
+  }
+
+  static WorkingHoursSinkConfig _workingHours(
+    AiTrackerConfig config, {
+    bool? enabled,
+    bool? automatic,
+    String? databasePath,
+    String? descriptionTemplate,
+  }) => WorkingHoursSinkConfig(
+    enabled: enabled ?? config.workingHours.enabled,
+    automatic: automatic ?? config.workingHours.automatic,
+    databasePath: databasePath ?? config.workingHours.databasePath,
+    descriptionTemplate:
+        descriptionTemplate ?? config.workingHours.descriptionTemplate,
+    color: config.workingHours.color,
+  );
+
+  static CalendarSinkConfig _calendar(
+    AiTrackerConfig config, {
+    bool? enabled,
+    bool? automatic,
+    String? name,
+    String? title,
+  }) => CalendarSinkConfig(
+    enabled: enabled ?? config.calendar.enabled,
+    automatic: automatic ?? config.calendar.automatic,
+    calendarName: name ?? config.calendar.calendarName,
+    titleTemplate: title ?? config.calendar.titleTemplate,
+  );
+
+  static TabularSinkConfig _tabular(
+    AiTrackerConfig config, {
+    bool? enabled,
+    bool? automatic,
+    String? csv,
+    String? xlsx,
+  }) => TabularSinkConfig(
+    enabled: enabled ?? config.tabular.enabled,
+    automatic: automatic ?? config.tabular.automatic,
+    csvPath: csv ?? config.tabular.csvPath,
+    xlsxPath: xlsx ?? config.tabular.xlsxPath,
+  );
+}
+
+/// Adds a transcript folder, or points an existing one somewhere else.
+Future<void> _editSource(
+  BuildContext context,
+  AppState state,
+  String? existing,
+) async {
+  final chosen = await showFolderPicker(context, initial: existing);
+  if (chosen == null || chosen.isEmpty) return;
+  final sources = [
+    for (final source in state.config.sources)
+      if (source == existing) chosen else source,
+    if (existing == null) chosen,
+  ];
+  await state.save(state.config.copyWith(sources: sources.toSet().toList()));
 }
 
 class _Section extends StatelessWidget {
@@ -244,14 +469,19 @@ class _Section extends StatelessWidget {
   }
 }
 
-class _Slider extends StatelessWidget {
+/// A slider that only commits when the thumb is let go.
+///
+/// Saving means rewriting the configuration and rescanning every transcript,
+/// which is far too much to do on each pixel of a drag, so the value is local
+/// until the gesture ends.
+class _Slider extends StatefulWidget {
   const _Slider({
     required this.label,
     required this.help,
     required this.value,
     required this.min,
     required this.max,
-    required this.onChanged,
+    required this.onSettled,
   });
 
   final String label;
@@ -259,27 +489,76 @@ class _Slider extends StatelessWidget {
   final double value;
   final double min;
   final double max;
-  final ValueChanged<double> onChanged;
+  final ValueChanged<double> onSettled;
 
   @override
-  Widget build(BuildContext context) => ListTile(
-    title: Text('$label: ${value.round()} min'),
-    subtitle: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(help, style: Theme.of(context).textTheme.bodySmall),
-        Slider(
-          // A value typed into the configuration file by hand can sit outside
-          // the slider's range; show it at the end of the track rather than
-          // throwing the screen away.
-          value: value.clamp(min, max),
-          min: min,
-          max: max,
-          divisions: (max - min).round(),
-          label: '${value.round()} min',
-          onChanged: onChanged,
-        ),
-      ],
+  State<_Slider> createState() => _SliderState();
+}
+
+class _SliderState extends State<_Slider> {
+  double? _dragging;
+
+  @override
+  void didUpdateWidget(_Slider old) {
+    super.didUpdateWidget(old);
+    if (old.value != widget.value) _dragging = null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // A value typed into the configuration file by hand can sit outside the
+    // slider's range; show it at the end of the track rather than throwing the
+    // screen away.
+    final value = (_dragging ?? widget.value).clamp(widget.min, widget.max);
+    return ListTile(
+      title: Text('${widget.label}: ${value.round()} min'),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(widget.help, style: Theme.of(context).textTheme.bodySmall),
+          Slider(
+            value: value,
+            min: widget.min,
+            max: widget.max,
+            divisions: (widget.max - widget.min).round(),
+            label: '${value.round()} min',
+            onChanged: (next) => setState(() => _dragging = next),
+            onChangeEnd: widget.onSettled,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A file path with a folder button: type it, or go and find it.
+class _PathField extends StatelessWidget {
+  const _PathField({
+    required this.label,
+    required this.value,
+    required this.onPicked,
+  });
+
+  final String label;
+  final String value;
+  final ValueChanged<String> onPicked;
+
+  @override
+  Widget build(BuildContext context) => _Field(
+    label: label,
+    value: value,
+    onSubmitted: onPicked,
+    trailing: IconButton(
+      tooltip: 'Browse',
+      icon: const Icon(Icons.folder_open, size: 18),
+      onPressed: () async {
+        final folder = await showFolderPicker(
+          context,
+          initial: p.dirname(value),
+        );
+        if (folder == null || folder.isEmpty) return;
+        onPicked(p.join(folder, p.basename(value)));
+      },
     ),
   );
 }
@@ -290,11 +569,13 @@ class _Field extends StatefulWidget {
     required this.value,
     required this.onSubmitted,
     this.help,
+    this.trailing,
   });
 
   final String label;
   final String value;
   final String? help;
+  final Widget? trailing;
   final ValueChanged<String> onSubmitted;
 
   @override
@@ -305,6 +586,14 @@ class _FieldState extends State<_Field> {
   late final TextEditingController _controller = TextEditingController(
     text: widget.value,
   );
+
+  @override
+  void didUpdateWidget(_Field old) {
+    super.didUpdateWidget(old);
+    if (old.value != widget.value && _controller.text != widget.value) {
+      _controller.text = widget.value;
+    }
+  }
 
   @override
   void dispose() {
@@ -322,6 +611,7 @@ class _FieldState extends State<_Field> {
         helperText: widget.help,
         border: const OutlineInputBorder(),
         isDense: true,
+        suffixIcon: widget.trailing,
       ),
       onSubmitted: widget.onSubmitted,
     ),

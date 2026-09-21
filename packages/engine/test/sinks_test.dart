@@ -56,6 +56,9 @@ String workingHoursDb(Directory temp, {String? timerStartedAt}) {
 }
 
 void main() {
+  // A test run has no business writing to the user's log.
+  Log.enabled = false;
+
   late Directory temp;
 
   setUp(() => temp = Directory.systemTemp.createTempSync('aitracker'));
@@ -123,9 +126,6 @@ void main() {
         app: absent,
       );
       expect(copy.appOwnsStore, isFalse);
-
-      const journal = DiariumSink(config: DiariumSinkConfig(), app: absent);
-      expect(journal.appOwnsStore, isTrue);
     });
 
     test('refuses when the database is missing', () {
@@ -263,7 +263,7 @@ void main() {
       expect(report.backup, isNull);
     });
 
-    test('files under the mapped ledger name, with its customer and tags', () {
+    test('files under the mapped ledger name, with its company and tags', () {
       final path = workingHoursDb(temp);
       final sink = WorkingHoursSink(
         config: WorkingHoursSinkConfig(databasePath: path),
@@ -271,7 +271,7 @@ void main() {
           ProjectLink(
             name: 'Byte Buddies - idbuddy',
             workingHours: 'BB - idbuddy',
-            customer: 'Byte Buddies',
+            company: 'Byte Buddies',
             workingHoursTags: ['Programming', 'idbuddy'],
           ),
         ],
@@ -286,15 +286,15 @@ void main() {
       final project = db
           .select('select * from Projects where Name = ?', ['BB - idbuddy'])
           .single;
-      // The customer is a tag on the project, which is how this ledger does it.
-      final customer = db
+      // The company is a tag on the project, which is how this ledger does it.
+      final company = db
           .select(
             'select t.Value from ProjectTags pt join Tags t on t.TagId = pt.TagId '
             'where pt.ProjectId = ?',
             [project['ProjectId']],
           )
           .single;
-      expect(customer['Value'], 'Byte Buddies');
+      expect(company['Value'], 'Byte Buddies');
       final tags = db.select(
         'select t.Value from WorkUnitTags wt join Tags t on t.TagId = wt.TagId',
       );
@@ -364,158 +364,6 @@ void main() {
       final db = sqlite3.open(path);
       expect(db.select('select * from WorkUnits'), isEmpty);
       db.close();
-    });
-  });
-
-  group('DiariumSink', () {
-    String diariumDb() {
-      final path = '${temp.path}/diarium.db';
-      final db = sqlite3.open(path);
-      db.execute('''
-        create table Entries (DiaryEntryId bigint primary key not null,
-          Heading varchar not null, Text varchar not null, Rating integer not null,
-          Latitude float not null, Longitude float not null);
-        create table EntryTags (DiaryEntryId bigint not null,
-          DiaryTagId integer not null, TrackingValue varchar);
-        create table Tags (DiaryTagId integer primary key autoincrement not null,
-          Value varchar not null, Type integer not null, Color varchar, Icon varchar);
-      ''');
-      db.close();
-      return path;
-    }
-
-    test('writes one entry per day, carrying its own marker', () {
-      final path = diariumDb();
-      final sink = DiariumSink(
-        config: DiariumSinkConfig(databasePath: path, entryTimeOfDay: '23:55'),
-        app: absent,
-      );
-
-      sink.sync([
-        tracked(start: DateTime(2026, 9, 1, 9), end: DateTime(2026, 9, 1, 10)),
-        tracked(start: DateTime(2026, 9, 1, 11), end: DateTime(2026, 9, 1, 11, 30)),
-        tracked(start: DateTime(2026, 9, 2, 9), end: DateTime(2026, 9, 2, 10)),
-      ], dryRun: false);
-
-      final db = sqlite3.open(path);
-      final entries = db.select('select * from Entries order by DiaryEntryId');
-      expect(entries, hasLength(2));
-      expect(fromTicks(entries.first['DiaryEntryId']! as int), DateTime(2026, 9, 1, 23, 55));
-      expect(entries.first['Heading'], 'AI hours');
-      expect(entries.first['Text'], contains('Byte Buddies - idbuddy: 1h 30m'));
-      expect(entries.first['Text'], contains('Total: 1h 30m'));
-      expect(entries.first['Text'], contains(DiariumSink.marker));
-      db.close();
-    });
-
-    test('rewrites its own entry instead of adding a second one', () {
-      final path = diariumDb();
-      final sink = DiariumSink(
-        config: DiariumSinkConfig(databasePath: path),
-        app: absent,
-      );
-      final block = tracked(
-        start: DateTime(2026, 9, 1, 9),
-        end: DateTime(2026, 9, 1, 10),
-      );
-
-      sink.sync([block], dryRun: false);
-      final report = sink.sync([
-        block,
-        tracked(start: DateTime(2026, 9, 1, 11), end: DateTime(2026, 9, 1, 12)),
-      ], dryRun: false);
-
-      final db = sqlite3.open(path);
-      expect(db.select('select * from Entries'), hasLength(1));
-      expect(db.select('select Text from Entries').single['Text'], contains('Total: 2h 0m'));
-      db.close();
-      expect(report.notes.single, contains('updated'));
-    });
-
-    test('steps past an entry the user wrote at the same minute', () {
-      final path = diariumDb();
-      final db = sqlite3.open(path);
-      db.execute('insert into Entries values (?, ?, ?, 0, 0.0, 0.0)', [
-        toTicks(DateTime(2026, 9, 1, 23, 55)),
-        'Dinner',
-        '<p>mine</p>',
-      ]);
-      db.close();
-      final sink = DiariumSink(
-        config: DiariumSinkConfig(databasePath: path),
-        app: absent,
-      );
-
-      sink.sync([
-        tracked(start: DateTime(2026, 9, 1, 9), end: DateTime(2026, 9, 1, 10)),
-      ], dryRun: false);
-
-      final after = sqlite3.open(path);
-      final entries = after.select('select * from Entries order by DiaryEntryId');
-      expect(entries, hasLength(2));
-      expect(entries.first['Heading'], 'Dinner');
-      expect(fromTicks(entries.last['DiaryEntryId']! as int), DateTime(2026, 9, 1, 23, 56));
-      after.close();
-    });
-
-    test('tags the entry for the projects that day, and retags on a rerun', () {
-      final path = diariumDb();
-      const link = ProjectLink(
-        name: 'Byte Buddies - idbuddy',
-        diariumTag: 'idbuddy',
-      );
-      final sink = DiariumSink(
-        config: DiariumSinkConfig(databasePath: path),
-        links: const [link],
-        app: absent,
-      );
-      final block = tracked(
-        start: DateTime(2026, 9, 1, 9),
-        end: DateTime(2026, 9, 1, 10),
-      );
-
-      sink.sync([block], dryRun: false);
-      sink.sync([block], dryRun: false);
-
-      final db = sqlite3.open(path);
-      final tags = db.select(
-        'select t.Value from EntryTags et join Tags t on t.DiaryTagId = et.DiaryTagId',
-      );
-      expect(tags.map((r) => r['Value']), ['idbuddy']);
-      expect(db.select('select * from Tags'), hasLength(1));
-      db.close();
-    });
-
-    test('a preview writes nothing', () {
-      final path = diariumDb();
-      final sink = DiariumSink(
-        config: DiariumSinkConfig(databasePath: path),
-        app: absent,
-      );
-
-      final report = sink.sync([
-        tracked(start: DateTime(2026, 9, 1, 9), end: DateTime(2026, 9, 1, 10)),
-      ]);
-
-      expect(report.applied, isFalse);
-      expect(report.notes.single, contains('would create the 2026-09-01 entry'));
-      final db = sqlite3.open(path);
-      expect(db.select('select * from Entries'), isEmpty);
-      db.close();
-    });
-
-    test('refuses when the database is missing, and shrugs at an empty day', () {
-      const missing = DiariumSink(
-        config: DiariumSinkConfig(databasePath: '/nonexistent/d.db'),
-        app: absent,
-      );
-      expect(missing.sync([]).refusal, contains('no Diarium database'));
-
-      final sink = DiariumSink(
-        config: DiariumSinkConfig(databasePath: diariumDb()),
-        app: absent,
-      );
-      expect(sink.sync([], dryRun: false).applied, isTrue);
     });
   });
 

@@ -44,7 +44,7 @@ void main() {
         enabled: false,
         databasePath: '${temp.path}/wh.db',
       ),
-      diarium: DiariumSinkConfig(databasePath: '${temp.path}/diarium.db'),
+      calendar: const CalendarSinkConfig(),
       tabular: TabularSinkConfig(
         enabled: true,
         csvPath: '${temp.path}/hours.csv',
@@ -63,6 +63,7 @@ void main() {
     final state = AppState(
       configPath: configPath,
       overridesPath: overridesPath,
+      background: false,
     );
     await tester.pumpWidget(AiTrackerApp(state: state));
     await tester.pumpAndSettle();
@@ -143,6 +144,13 @@ void main() {
 
     await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('Export CSV and Excel'),
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.ensureVisible(find.text('Export CSV and Excel'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Export CSV and Excel'));
     await tester.pumpAndSettle();
 
@@ -197,8 +205,8 @@ void main() {
 
     final link = state.config.linkFor('Byte Buddies - idbuddy')!;
     expect(link.workingHours, 'BB - idbuddy');
-    expect(link.customer, 'Byte Buddies');
-    expect(link.diariumTag, 'idbuddy');
+    expect(link.company, 'Byte Buddies');
+    expect(link.calendarLabel, 'idbuddy');
     expect(AiTrackerConfig.load(configPath).links, hasLength(1));
   });
 
@@ -246,17 +254,17 @@ void main() {
   ) async {
     await pump(tester);
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Sync'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Export…'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Ready to file'), findsOneWidget);
-    expect(find.textContaining('2 blocks'), findsOneWidget);
+    expect(find.text('Export hours'), findsOneWidget);
+    expect(find.textContaining('would write 2 blocks'), findsOneWidget);
     expect(File('${temp.path}/hours.csv').existsSync(), isFalse);
 
     await tester.tap(find.widgetWithText(FilledButton, 'Write'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Filed'), findsOneWidget);
+    expect(find.text('Exported'), findsOneWidget);
     expect(File('${temp.path}/hours.csv').readAsLinesSync(), hasLength(3));
   });
 }

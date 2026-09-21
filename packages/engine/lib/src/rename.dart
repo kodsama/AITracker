@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:sqlite3/sqlite3.dart';
 
 import 'config.dart';
+import 'log.dart';
 import 'mac_apps.dart';
 import 'overrides.dart';
 
@@ -36,25 +37,22 @@ class RenameResult {
   };
 }
 
-/// Renames a project, and carries the new name into the apps that were asked
-/// for.
+/// Renames a project, and carries the new name into WorkingHours if asked.
 ///
 /// The rules, the mapping and the hand edits always move together, because they
-/// key on the project name and would otherwise be orphaned. WorkingHours and
-/// Diarium only move when [inWorkingHours] and [inDiarium] say so, which is how
-/// a name can differ on purpose between the three: rename here and leave the
-/// ledger alone, and the mapping keeps pointing at the old ledger name.
+/// key on the project name and would otherwise be orphaned. The ledger only
+/// moves when [inWorkingHours] says so, which is how a name can differ on
+/// purpose between the two: rename here and leave the ledger alone, and the
+/// mapping keeps pointing at the old ledger name.
 RenameResult renameProject(
   AiTrackerConfig config, {
   required String from,
   required String to,
   bool inWorkingHours = false,
-  bool inDiarium = false,
   bool dryRun = true,
   bool quitApps = false,
   OverrideStore? overrides,
   MacApp workingHoursApp = MacApp.workingHours,
-  MacApp diariumApp = MacApp.diarium,
 }) {
   if (from == to || to.trim().isEmpty) {
     return RenameResult(
@@ -66,53 +64,39 @@ RenameResult renameProject(
 
   final link = config.linkFor(from);
   final ledgerName = link?.workingHoursProject ?? from;
-  final journalTag = link?.diariumTag;
   final notes = <String>[];
 
   final whPath = AiTrackerConfig.resolveHome(config.workingHours.databasePath);
-  final diariumPath = AiTrackerConfig.resolveHome(config.diarium.databasePath);
 
   final relaunch = <MacApp>[];
-  for (final (wanted, path, app, name, live) in [
-    (
-      inWorkingHours,
-      whPath,
-      workingHoursApp,
-      'WorkingHours',
-      WorkingHoursSinkConfig.defaultDatabasePath,
-    ),
-    (
-      inDiarium,
-      diariumPath,
-      diariumApp,
-      'Diarium',
-      DiariumSinkConfig.defaultDatabasePath,
-    ),
-  ]) {
-    if (!wanted || dryRun) continue;
-    if (!File(path).existsSync()) {
+  if (inWorkingHours && !dryRun) {
+    if (!File(whPath).existsSync()) {
       return RenameResult(
         config: config,
         applied: false,
-        refusal: 'no $name database at $path',
+        refusal: 'no WorkingHours database at $whPath',
       );
     }
-    if (!ownsStore(path, live) || !app.isRunning) continue;
-    if (!quitApps) {
-      return RenameResult(
-        config: config,
-        applied: false,
-        refusal: '$name is running; quit it, or rename with quit_app enabled',
-      );
+    if (ownsStore(whPath, WorkingHoursSinkConfig.defaultDatabasePath) &&
+        workingHoursApp.isRunning) {
+      if (!quitApps) {
+        return RenameResult(
+          config: config,
+          applied: false,
+          refusal:
+              'WorkingHours is running; quit it, or rename with quit_app '
+              'enabled',
+        );
+      }
+      if (!workingHoursApp.quit()) {
+        return RenameResult(
+          config: config,
+          applied: false,
+          refusal: 'WorkingHours did not quit within 20s',
+        );
+      }
+      relaunch.add(workingHoursApp);
     }
-    if (!app.quit()) {
-      return RenameResult(
-        config: config,
-        applied: false,
-        refusal: '$name did not quit within 20s',
-      );
-    }
-    relaunch.add(app);
   }
 
   // The configuration moves whatever the stores do: a rule or a hand edit still
@@ -127,9 +111,10 @@ RenameResult renameProject(
         ProjectLink(
           name: to,
           workingHours: inWorkingHours ? null : link.workingHours ?? from,
-          customer: link.customer,
+          company: link.company,
           workingHoursTags: link.workingHoursTags,
-          diariumTag: inDiarium ? to : link.diariumTag,
+          calendarLabel: link.calendarLabel,
+          color: link.color,
         )
       else
         link,
@@ -169,23 +154,13 @@ RenameResult renameProject(
             ),
     );
   }
-  if (inDiarium && journalTag != null) {
-    notes.add(
-      dryRun
-          ? 'would rename the Diarium tag "$journalTag"'
-          : _renameRow(
-              diariumPath,
-              'update Tags set Value = ? where Value = ?',
-              [to, journalTag],
-              'Diarium tag "$journalTag"',
-            ),
-    );
-  }
-
   for (final app in relaunch) {
     app.launch();
   }
 
+  for (final note in notes) {
+    Log.info('rename: $note');
+  }
   return RenameResult(
     config: config.copyWith(rules: rules, links: links),
     applied: !dryRun,

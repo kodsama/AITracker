@@ -5,14 +5,15 @@ import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 void main() {
+  // A test run has no business writing to the user's log.
+  Log.enabled = false;
+
   late Directory temp;
   late String workingHours;
-  late String diarium;
 
   setUp(() {
     temp = Directory.systemTemp.createTempSync('aitracker_catalog');
     workingHours = '${temp.path}/wh.db';
-    diarium = '${temp.path}/diarium.db';
 
     sqlite3.open(workingHours)
       ..execute('''
@@ -42,13 +43,6 @@ void main() {
       ..execute('insert into ProjectTags values (1, 1)')
       ..close();
 
-    sqlite3.open(diarium)
-      ..execute(
-        'create table Tags (DiaryTagId integer primary key autoincrement not null, '
-        'Value varchar not null, Type integer not null, Color varchar, Icon varchar)',
-      )
-      ..execute("insert into Tags (Value, Type) values ('Work', 0), ('Travel', 0)")
-      ..close();
   });
 
   tearDown(() => temp.deleteSync(recursive: true));
@@ -56,7 +50,6 @@ void main() {
   AiTrackerConfig config() => AiTrackerConfig(
     sources: const [],
     workingHours: WorkingHoursSinkConfig(databasePath: workingHours),
-    diarium: DiariumSinkConfig(databasePath: diarium),
   );
 
   test('reads the projects, their colours and whether they are archived', () {
@@ -71,15 +64,15 @@ void main() {
     expect(catalog.projects.last.hidden, isTrue);
   });
 
-  test('a customer is the tag the ledger hangs on a project', () {
+  test('a company is the tag the ledger hangs on a project', () {
     final catalog = Catalog.read(config());
 
-    expect(catalog.customers, ['RiACT']);
-    expect(catalog.projects.first.customer, 'RiACT');
-    expect(catalog.projects.last.customer, isNull);
+    expect(catalog.companies, ['RiACT']);
+    expect(catalog.projects.first.company, 'RiACT');
+    expect(catalog.projects.last.company, isNull);
   });
 
-  test('reads every tag, archived ones included, and the journal tags too', () {
+  test('reads every tag, archived ones included', () {
     final catalog = Catalog.read(config());
 
     expect(catalog.tags.map((t) => t.value), [
@@ -88,7 +81,7 @@ void main() {
       'RiACT',
     ]);
     expect(catalog.tags.firstWhere((t) => t.value == 'Retired').hidden, isTrue);
-    expect(catalog.diariumTags.map((t) => t.value), ['Travel', 'Work']);
+
   });
 
   test('a missing or broken store reads as empty rather than failing', () {
@@ -96,11 +89,9 @@ void main() {
       const AiTrackerConfig(
         sources: [],
         workingHours: WorkingHoursSinkConfig(databasePath: '/nonexistent/wh.db'),
-        diarium: DiariumSinkConfig(databasePath: '/nonexistent/d.db'),
       ),
     );
     expect(empty.projects, isEmpty);
-    expect(empty.diariumTags, isEmpty);
 
     final junk = '${temp.path}/junk.db';
     File(junk).writeAsStringSync('not a database');
@@ -108,11 +99,9 @@ void main() {
       AiTrackerConfig(
         sources: const [],
         workingHours: WorkingHoursSinkConfig(databasePath: junk),
-        diarium: DiariumSinkConfig(databasePath: junk),
       ),
     );
     expect(broken.projects, isEmpty);
-    expect(broken.diariumTags, isEmpty);
   });
 
   test('serialises for a client', () {
@@ -122,9 +111,9 @@ void main() {
       'name': 'RiACT - Code',
       'hidden': false,
       'color': '#FF69BD0D',
-      'customer': 'RiACT',
+      'company': 'RiACT',
     });
-    expect(json['customers'], ['RiACT']);
+    expect(json['companies'], ['RiACT']);
   });
 
   group('colours', () {

@@ -11,6 +11,9 @@ ActivityEvent event(String time, String directory, [String session = 's1']) =>
     );
 
 void main() {
+  // A test run has no business writing to the user's log.
+  Log.enabled = false;
+
   group('ticks', () {
     test('matches a timestamp WorkingHours actually wrote', () {
       // Row 4835 of the live store: a work unit starting 13:07 on 2026-05-15.
@@ -181,6 +184,118 @@ void main() {
     });
   });
 
+  group('other assistants', () {
+    late Directory temp;
+
+    setUp(() => temp = Directory.systemTemp.createTempSync('aitracker_gemini'));
+    tearDown(() => temp.deleteSync(recursive: true));
+
+    test('reads the Gemini and Antigravity CLI history', () {
+      final dir = Directory('${temp.path}/antigravity-cli')
+        ..createSync(recursive: true);
+      final start = DateTime(2026, 9, 1, 9).millisecondsSinceEpoch;
+      File('${dir.path}/history.jsonl').writeAsStringSync(
+        '{"display":"/career-ops","timestamp":$start,'
+        '"workspace":"/Users/me/Developer/Career-Ops"}\n'
+        '{"display":"do the thing","timestamp":${start + 300000},'
+        '"workspace":"/Users/me/Developer/Career-Ops",'
+        '"conversationId":"abc"}\n',
+      );
+
+      final events = TranscriptScanner([temp.path]).scan();
+
+      expect(events, hasLength(2));
+      expect(events.first.time, DateTime(2026, 9, 1, 9));
+      expect(events.first.directory, '/Users/me/Developer/Career-Ops');
+      expect(events.last.sessionId, 'abc');
+      expect(events.last.tokens.isEmpty, isTrue);
+    });
+
+    test('tells the two layouts apart', () {
+      expect(
+        TranscriptScanner.formatOf('{"timestamp":"2026-09-01T09:00:00Z"}'),
+        TranscriptFormat.claudeCode,
+      );
+      expect(
+        TranscriptScanner.formatOf('{"timestamp":1784620258659,"workspace":"/x"}'),
+        TranscriptFormat.geminiCli,
+      );
+      expect(TranscriptScanner.formatOf('{}'), TranscriptFormat.unknown);
+    });
+  });
+
+  group('tokens', () {
+    test('are read off the assistant turns and summed into the block', () {
+      final blocks = buildBlocks([
+        ActivityEvent(
+          time: DateTime(2026, 9, 1, 9),
+          directory: '/repo',
+          sessionId: 's',
+          tokens: const TokenUsage(input: 2, output: 761, cacheWrite: 18664),
+        ),
+        ActivityEvent(
+          time: DateTime(2026, 9, 1, 9, 8),
+          directory: '/repo',
+          sessionId: 's',
+          tokens: const TokenUsage(cacheRead: 25336, output: 100),
+        ),
+      ]);
+
+      final tokens = blocks.single.tokens;
+      expect(tokens.output, 861);
+      expect(tokens.cacheWrite, 18664);
+      expect(tokens.cacheRead, 25336);
+      expect(tokens.total, 44863);
+      expect(tokens.fresh, 19527);
+    });
+
+    test('a transcript line carries its own usage', () {
+      final temp = Directory.systemTemp.createTempSync('aitracker_tokens');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final dir = Directory('${temp.path}/projects/p')..createSync(recursive: true);
+      File('${dir.path}/s.jsonl').writeAsStringSync(
+        '{"timestamp":"2026-09-01T09:00:00.000Z","cwd":"/repo",'
+        '"message":{"usage":{"input_tokens":2,"cache_creation_input_tokens":18664,'
+        '"cache_read_input_tokens":25336,"output_tokens":761}}}\n',
+      );
+
+      final events = TranscriptScanner(['${temp.path}/projects']).scan();
+
+      expect(events.single.tokens.total, 44763);
+    });
+  });
+
+  group('parallel sessions', () {
+    ActivityEvent at(String time, String directory) => ActivityEvent(
+      time: DateTime.parse(time),
+      directory: directory,
+      sessionId: directory,
+    );
+
+    test('per-project blocks overlap, the exclusive ones do not', () {
+      final events = [
+        at('2026-09-01T09:00:00', '/a'),
+        at('2026-09-01T09:05:00', '/b'),
+        at('2026-09-01T09:30:00', '/a'),
+        at('2026-09-01T09:35:00', '/b'),
+      ];
+
+      final exclusive = buildBlocks(events, idleGap: const Duration(hours: 1));
+      final perProject = buildProjectBlocks(
+        events,
+        idleGap: const Duration(hours: 1),
+      );
+
+      // Half an hour of wall clock, worked in two repositories at once.
+      expect(unionDuration(exclusive), const Duration(minutes: 35));
+      expect(
+        perProject.fold(Duration.zero, (sum, b) => sum + b.duration),
+        const Duration(minutes: 60),
+      );
+      expect(unionDuration(perProject), const Duration(minutes: 35));
+    });
+  });
+
   group('AiTrackerConfig', () {
     test('matches the first rule and falls back when none do', () {
       const config = AiTrackerConfig(
@@ -225,7 +340,7 @@ void main() {
         minBlock: Duration(minutes: 3),
         rules: [ProjectRule(match: 'x', project: 'Y - z')],
         fallbackProject: 'Unsorted',
-        diarium: DiariumSinkConfig(enabled: true, heading: 'AI'),
+        calendar: CalendarSinkConfig(enabled: true, calendarName: 'AI'),
         mcpEnabled: true,
         mcpPort: 9100,
       );
@@ -239,8 +354,8 @@ void main() {
       expect(loaded.minBlock, const Duration(minutes: 3));
       expect(loaded.rules.single.project, 'Y - z');
       expect(loaded.fallbackProject, 'Unsorted');
-      expect(loaded.diarium.enabled, isTrue);
-      expect(loaded.diarium.heading, 'AI');
+      expect(loaded.calendar.enabled, isTrue);
+      expect(loaded.calendar.calendarName, 'AI');
       expect(loaded.mcpEnabled, isTrue);
       expect(loaded.mcpPort, 9100);
     });
