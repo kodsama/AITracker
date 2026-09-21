@@ -19,7 +19,7 @@ class McpServer {
   McpServer({
     required this.tools,
     this.name = 'aitracker',
-    this.title = 'AITracker',
+    this.title = 'AI Tracker',
     this.version = kMcpDefaultVersion,
     this.protocolVersion = '2025-06-18',
   });
