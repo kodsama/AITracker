@@ -29,7 +29,11 @@ class HoursScreen extends StatelessWidget {
           ),
         ),
         if (state.trouble != null) _Trouble(message: state.trouble!),
-        if (strays.isNotEmpty) _UnmappedBanner(strays: strays),
+        if (strays.isNotEmpty)
+          _UnmappedBanner(
+            strays: strays,
+            onShow: () => state.setFilter(BlockFilter.unmapped),
+          ),
         _SearchRow(state: state),
         if (state.selected.isNotEmpty) BatchBar(state: state),
         const SizedBox(height: 4),
@@ -76,10 +80,25 @@ class _SearchRowState extends State<_SearchRow> {
     final state = widget.state;
     final all = state.blocks.isNotEmpty &&
         state.selected.length == state.blocks.length;
+    final counts = state.filterCounts;
     return Padding(
       padding: const EdgeInsets.fromLTRB(28, 8, 28, 4),
       child: Row(
         children: [
+          SegmentedButton<BlockFilter>(
+            showSelectedIcon: false,
+            style: const ButtonStyle(visualDensity: VisualDensity.compact),
+            segments: [
+              for (final filter in BlockFilter.values)
+                ButtonSegment(
+                  value: filter,
+                  label: Text('${filter.label} ${counts[filter]}'),
+                ),
+            ],
+            selected: {state.filter},
+            onSelectionChanged: (chosen) => state.setFilter(chosen.first),
+          ),
+          const SizedBox(width: 12),
           Expanded(
             child: TextField(
               controller: _controller,
@@ -157,9 +176,12 @@ class _Trouble extends StatelessWidget {
 }
 
 class _UnmappedBanner extends StatelessWidget {
-  const _UnmappedBanner({required this.strays});
+  const _UnmappedBanner({required this.strays, required this.onShow});
 
   final Map<String, Duration> strays;
+
+  /// Narrows the list to the blocks going nowhere.
+  final VoidCallback onShow;
 
   @override
   Widget build(BuildContext context) {
@@ -183,6 +205,7 @@ class _UnmappedBanner extends StatelessWidget {
               'These hours go nowhere until you map them under Projects.',
             ),
           ),
+          TextButton(onPressed: onShow, child: const Text('Show them')),
         ],
       ),
     );

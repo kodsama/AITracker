@@ -198,6 +198,60 @@ void main() {
     expect(find.text('Nothing in this window yet.'), findsOneWidget);
   });
 
+  testWidgets('the list narrows to mapped or unmapped', (tester) async {
+    final state = await pump(tester);
+
+    expect(state.blocks, hasLength(2));
+    expect(state.filterCounts[BlockFilter.unmapped], 1);
+
+    await tester.tap(find.text('Unmapped 1'));
+    await tester.pumpAndSettle();
+
+    expect(state.blocks.single.project, isNull);
+    expect(find.text('Paperweight AI - paperweight'), findsNothing);
+
+    await tester.tap(find.text('Mapped 1'));
+    await tester.pumpAndSettle();
+
+    expect(state.blocks.single.project, 'Byte Buddies - idbuddy');
+  });
+
+  testWidgets('searching for unmapped finds the blocks going nowhere', (
+    tester,
+  ) async {
+    final state = await pump(tester);
+
+    await tester.enterText(find.byType(TextField).first, 'unmapped');
+    await tester.pumpAndSettle();
+
+    expect(state.blocks, hasLength(1));
+    expect(state.blocks.single.project, isNull);
+  });
+
+  testWidgets('the banner jumps to the blocks it is complaining about', (
+    tester,
+  ) async {
+    final state = await pump(tester);
+
+    await tester.tap(find.text('Show them'));
+    await tester.pumpAndSettle();
+
+    expect(state.filter, BlockFilter.unmapped);
+  });
+
+  testWidgets('a filtered-out block cannot stay selected', (tester) async {
+    final state = await pump(tester);
+
+    await tester.tap(find.byType(Checkbox).last);
+    await tester.pumpAndSettle();
+    expect(state.selected, hasLength(1));
+
+    await tester.tap(find.text('Unmapped 1'));
+    await tester.pumpAndSettle();
+
+    expect(state.selected, isEmpty);
+  });
+
   testWidgets('the calendar lays a month out as a grid that fills the card', (
     tester,
   ) async {

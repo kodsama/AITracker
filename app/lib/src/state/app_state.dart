@@ -7,6 +7,30 @@ import 'package:flutter/material.dart' show Brightness, Color;
 
 import '../theme.dart';
 
+/// Which blocks the list shows.
+enum BlockFilter {
+  /// Everything in the window.
+  all('All'),
+
+  /// Only the blocks a rule or a hand edit put a project on.
+  mapped('Mapped'),
+
+  /// Only the blocks whose hours are going nowhere.
+  unmapped('Unmapped');
+
+  const BlockFilter(this.label);
+
+  /// Name on the segment.
+  final String label;
+
+  /// Whether [block] belongs in this view.
+  bool covers(TrackedBlock block) => switch (this) {
+    BlockFilter.all => true,
+    BlockFilter.mapped => block.project != null,
+    BlockFilter.unmapped => block.project == null,
+  };
+}
+
 /// How the hours are counted when two sessions overlap.
 enum CountMode {
   /// A minute belongs to one project, so the totals add up to the clock. This
@@ -68,6 +92,7 @@ class AppState extends ChangeNotifier {
   DateTime? _customEnd;
   int _periodStep = 0;
   CountMode _mode = CountMode.wallClock;
+  BlockFilter _filter = BlockFilter.all;
   String _query = '';
   bool _loading = true;
   int _scan = 0;
@@ -79,18 +104,28 @@ class AppState extends ChangeNotifier {
   /// Current configuration.
   AiTrackerConfig get config => _config;
 
-  /// Blocks in the window, newest first, after the search box.
+  /// Blocks in the window, newest first, after the filter and the search box.
   List<TrackedBlock> get blocks {
-    if (_query.trim().isEmpty) return _blocks;
     final needle = _query.trim().toLowerCase();
+    if (_filter == BlockFilter.all && needle.isEmpty) return _blocks;
     return [
       for (final block in _blocks)
-        if ('${block.project ?? ''} ${block.description} ${block.block.directory}'
-            .toLowerCase()
-            .contains(needle))
+        if (_filter.covers(block) &&
+            (needle.isEmpty || _haystack(block).contains(needle)))
           block,
     ];
   }
+
+  /// What the search box looks through.
+  ///
+  /// A block with no project reads as "unmapped" on screen, so that is the word
+  /// the search has to find it by.
+  static String _haystack(TrackedBlock block) => [
+    block.project ?? unmappedLabel,
+    block.description,
+    block.block.directory,
+    if (block.excluded) 'excluded',
+  ].join(' ').toLowerCase();
 
   /// Every block in the window, whatever the search box says.
   List<TrackedBlock> get allBlocks => _blocks;
@@ -116,6 +151,15 @@ class AppState extends ChangeNotifier {
 
   /// What the search box holds.
   String get query => _query;
+
+  /// Which blocks the list is narrowed to.
+  BlockFilter get filter => _filter;
+
+  /// How many blocks each filter would show, for the counts on the segments.
+  Map<BlockFilter, int> get filterCounts => {
+    for (final filter in BlockFilter.values)
+      filter: _blocks.where(filter.covers).length,
+  };
 
   /// What the two apps already hold: projects, tags, companies.
   Catalog get catalog => _catalog;
@@ -341,7 +385,20 @@ class AppState extends ChangeNotifier {
   /// Filters the list.
   void setQuery(String query) {
     _query = query;
-    _selected.removeWhere((key) => !blocks.any((b) => b.key == key));
+    _dropUnseenSelection();
+  }
+
+  /// Narrows the list to mapped, unmapped or everything.
+  void setFilter(BlockFilter filter) {
+    _filter = filter;
+    _dropUnseenSelection();
+  }
+
+  /// A block that has scrolled out of the list cannot stay selected, or a bulk
+  /// edit would reach rows nobody can see.
+  void _dropUnseenSelection() {
+    final shown = blocks.map((b) => b.key).toSet();
+    _selected.removeWhere((key) => !shown.contains(key));
     notifyListeners();
   }
 
