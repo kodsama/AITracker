@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'cache.dart';
 import 'log.dart';
 
 /// What one exchange cost, as the assistant reported it.
@@ -151,15 +152,24 @@ enum TranscriptFormat {
 /// fields are wanted.
 class TranscriptScanner {
   /// Creates a scanner over [sources], each a directory of transcripts.
-  const TranscriptScanner(this.sources);
+  ///
+  /// With a [cache] the scanner only reads the files that changed since the
+  /// last scan, which is what makes rescanning cheap enough to do on every
+  /// change of window.
+  const TranscriptScanner(this.sources, {this.cache});
 
   /// Directories to walk, recursively.
   final List<String> sources;
 
+  /// What was parsed last time, if it is being kept.
+  final TranscriptCache? cache;
+
   /// Every event at or after [since], in no particular order.
   List<ActivityEvent> scan({DateTime? since}) {
     final started = DateTime.now();
-    var files = 0;
+    var read = 0;
+    var reused = 0;
+    final seen = <String>{};
     final events = <ActivityEvent>[];
     for (final source in sources) {
       final dir = Directory(source);
@@ -169,15 +179,41 @@ class TranscriptScanner {
       }
       for (final file in dir.listSync(recursive: true).whereType<File>()) {
         if (p.extension(file.path) != '.jsonl') continue;
-        if (since != null && file.lastModifiedSync().isBefore(since)) continue;
-        files++;
-        events.addAll(readTranscript(file, since: since));
+        seen.add(file.path);
+        final store = cache;
+        if (store == null) {
+          if (since != null && file.lastModifiedSync().isBefore(since)) {
+            continue;
+          }
+          read++;
+          events.addAll(readTranscript(file, since: since));
+          continue;
+        }
+        // Cached events are the whole file, so the window is applied here
+        // rather than while parsing.
+        var parsed = false;
+        final held = store.events(file.path, () {
+          parsed = true;
+          return readTranscript(file);
+        });
+        if (held == null) continue;
+        if (parsed) {
+          read++;
+        } else {
+          reused++;
+        }
+        for (final event in held) {
+          if (since != null && event.time.isBefore(since)) continue;
+          events.add(event);
+        }
       }
     }
+    cache?.keepOnly(seen);
     Log.info(
-      'scanned $files transcripts in ${sources.length} folders: '
+      'scanned ${read + reused} transcripts in ${sources.length} folders: '
       '${events.length} events in '
-      '${DateTime.now().difference(started).inMilliseconds}ms',
+      '${DateTime.now().difference(started).inMilliseconds}ms'
+      '${reused == 0 ? '' : ', $reused from cache'}',
     );
     return events;
   }

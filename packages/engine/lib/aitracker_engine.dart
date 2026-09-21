@@ -6,6 +6,7 @@
 library;
 
 export 'src/activity.dart';
+export 'src/cache.dart';
 export 'src/catalog.dart';
 export 'src/colors.dart';
 export 'src/config.dart';
@@ -22,3 +23,4 @@ export 'src/sinks/workinghours.dart';
 export 'src/ticks.dart';
 export 'src/token.dart';
 export 'src/tracking.dart';
+export 'src/worker.dart';

@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:isolate';
 
 import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:aitracker_mcp/aitracker_mcp.dart';
@@ -61,6 +60,8 @@ class AppState extends ChangeNotifier {
   Catalog _catalog = const Catalog();
   List<TrackedBlock> _blocks = const [];
   List<TrackedBlock> _exclusive = const [];
+  List<TrackedBlock> _perProject = const [];
+  final TranscriptCache _cache = TranscriptCache();
   final Set<String> _selected = {};
   PeriodKind _periodKind = PeriodKind.thisMonth;
   DateTime? _customStart;
@@ -70,6 +71,7 @@ class AppState extends ChangeNotifier {
   String _query = '';
   bool _loading = true;
   int _scan = 0;
+  ScanWorker? _worker;
   String? _trouble;
   List<SyncReport> _lastAutomatic = const [];
   ServerSocket? _mcp;
@@ -196,10 +198,14 @@ class AppState extends ChangeNotifier {
   }
 
   /// Reads the configuration and scans the transcripts.
+  ///
+  /// The worker is started once and kept: it holds the parsed transcripts, so
+  /// changing the window rereads only the files that moved.
   Future<void> load() async {
     _config = AiTrackerConfig.load(configPath);
     _overrides = OverrideStore.load(overridesPath);
     _catalog = Catalog.read(_config);
+    _worker ??= background ? await ScanWorker.start() : null;
     if (_config.mcpEnabled && _mcp == null) await startMcp();
     await refresh();
   }
@@ -218,41 +224,21 @@ class AppState extends ChangeNotifier {
     final config = _config;
     final overrides = _overrides;
     final window = period;
-    ({List<TrackedBlock> exclusive, List<TrackedBlock> perProject}) job() {
-        final tracking = AiTracker(config: config, overrides: overrides);
-        final events = TranscriptScanner(config.sources).scan(
-          since: window.start,
-        );
-        List<TrackedBlock> resolve(List<WorkBlock> blocks) => [
-          for (final block in blocks)
-            if (block.start.isBefore(window.end)) tracking.resolve(block),
-        ];
-        return (
-          exclusive: resolve(
-            buildBlocks(
-              events,
-              idleGap: config.idleGap,
-              minBlock: config.minBlock,
-            ),
-          ),
-          perProject: resolve(
-            buildProjectBlocks(
-              events,
-              idleGap: config.idleGap,
-              minBlock: config.minBlock,
-            ),
-          ),
-        );
-    }
-
     try {
-      final found = background ? await Isolate.run(job) : job();
+      final worker = _worker;
+      final found = worker != null
+          ? await worker.scan(
+              config: config,
+              overrides: overrides,
+              window: window,
+            )
+          : _scanHere(config, overrides, window);
       if (generation != _scan) return;
-      _exclusive = found.exclusive;
-      _blocks =
-          (_mode == CountMode.perProject ? found.perProject : found.exclusive)
-              .reversed
-              .toList();
+      _exclusive = found.wallClock;
+      _perProject = found.perProject;
+      _blocks = (_mode == CountMode.perProject ? _perProject : _exclusive)
+          .reversed
+          .toList();
       _selected.removeWhere((key) => !_blocks.any((b) => b.key == key));
     } on Object catch (error) {
       if (generation != _scan) return;
@@ -261,6 +247,40 @@ class AppState extends ChangeNotifier {
     _loading = false;
     notifyListeners();
     await _fileAutomatically();
+  }
+
+  /// Scans on this thread, which is what the tests do: an isolate a widget
+  /// test cannot pump is an isolate a widget test cannot wait for.
+  ScanResult _scanHere(
+    AiTrackerConfig config,
+    OverrideStore overrides,
+    Period window,
+  ) {
+    final tracking = AiTracker(config: config, overrides: overrides);
+    final events = TranscriptScanner(
+      config.sources,
+      cache: _cache,
+    ).scan(since: window.start);
+    List<TrackedBlock> resolve(List<WorkBlock> blocks) => [
+      for (final block in blocks)
+        if (block.start.isBefore(window.end)) tracking.resolve(block),
+    ];
+    return ScanResult(
+      wallClock: resolve(
+        buildBlocks(
+          events,
+          idleGap: config.idleGap,
+          minBlock: config.minBlock,
+        ),
+      ),
+      perProject: resolve(
+        buildProjectBlocks(
+          events,
+          idleGap: config.idleGap,
+          minBlock: config.minBlock,
+        ),
+      ),
+    );
   }
 
   /// Runs the sinks that file by themselves.
@@ -306,9 +326,16 @@ class AppState extends ChangeNotifier {
   }
 
   /// Switches how overlapping sessions are counted.
-  Future<void> setMode(CountMode mode) async {
+  ///
+  /// Both readings come out of one scan, so this is a swap rather than a
+  /// reason to go back to disk.
+  void setMode(CountMode mode) {
     _mode = mode;
-    await refresh();
+    _blocks = (mode == CountMode.perProject ? _perProject : _exclusive)
+        .reversed
+        .toList();
+    _selected.removeWhere((key) => !_blocks.any((b) => b.key == key));
+    notifyListeners();
   }
 
   /// Filters the list.
@@ -509,6 +536,7 @@ class AppState extends ChangeNotifier {
   @override
   void dispose() {
     _mcp?.close();
+    _worker?.stop();
     super.dispose();
   }
 }
