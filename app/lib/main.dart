@@ -32,7 +32,7 @@ class _AiTrackerAppState extends State<AiTrackerApp> {
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-    title: 'AITracker',
+    title: 'AI Tracker',
     debugShowCheckedModeBanner: false,
     theme: appTheme(Brightness.light),
     darkTheme: appTheme(Brightness.dark),
