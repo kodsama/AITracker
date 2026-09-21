@@ -3,12 +3,12 @@ import 'dart:math' as math;
 import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:flutter/material.dart';
 
-/// A day-by-day calendar, each day painted in the colour of the project that
-/// took most of it, and shaded by how much of it there was.
+/// A calendar of the period, a month to a block, each day painted in the colour
+/// of the project that took most of it and shaded by how much of it there was.
 ///
 /// Colour carries identity and shade carries magnitude, so the legend and the
-/// hover line both name the project: a cell is never the only thing saying
-/// which project it was.
+/// line under the grid both name the project: a cell is never the only thing
+/// saying which project it was.
 class CalendarHeatmap extends StatefulWidget {
   /// Creates the calendar.
   const CalendarHeatmap({
@@ -21,28 +21,25 @@ class CalendarHeatmap extends StatefulWidget {
   /// Day to project to time.
   final Map<DateTime, Map<String, Duration>> days;
 
-  /// Window to draw, whole weeks either side.
+  /// Window to draw. Whole months are shown, with the days outside the window
+  /// dimmed, so a week in the middle of a month still reads as a week.
   final Period period;
 
   /// Colour for a project.
   final Color Function(String project) colorOf;
 
-  /// Space between cells.
+  /// Space between day cells.
   static const double gap = 4;
 
-  /// Width kept for the weekday names.
-  static const double labelWidth = 38;
+  /// Width kept for the weekday column inside a month block.
+  static const double labelWidth = 34;
 
-  /// A cell narrower than this is unreadable; one wider stops looking like a
-  /// calendar and starts looking like a wall.
-  static const double minCell = 13;
+  /// Below this a day cell is unreadable, so fewer months go across instead.
+  static const double minCell = 19;
 
-  /// Cap on cell size, so a short window does not blow up to fill a wide
-  /// window with six enormous squares.
-  static const double maxCell = 54;
-
-  /// At this size a cell has room for the day of the month.
-  static const double numbersFrom = 24;
+  /// Above this a cell stops looking like a calendar and starts looking like a
+  /// wall, so the block is left with space around it.
+  static const double maxCell = 46;
 
   @override
   State<CalendarHeatmap> createState() => _CalendarHeatmapState();
@@ -51,20 +48,24 @@ class CalendarHeatmap extends StatefulWidget {
 class _CalendarHeatmapState extends State<CalendarHeatmap> {
   DateTime? _hovered;
 
+  /// Every month the period touches.
+  List<DateTime> get _months {
+    final months = <DateTime>[];
+    var at = DateTime(widget.period.start.year, widget.period.start.month);
+    final last = DateTime(widget.period.end.year, widget.period.end.month);
+    while (!at.isAfter(last)) {
+      // A period ending exactly at midnight on the first does not reach into
+      // that month.
+      if (at == last && widget.period.end == last) break;
+      months.add(at);
+      at = DateTime(at.year, at.month + 1);
+    }
+    return months.isEmpty ? [DateTime(widget.period.start.year, widget.period.start.month)] : months;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final start = widget.period.start.subtract(
-      Duration(days: widget.period.start.weekday - 1),
-    );
-    final weeks = <List<DateTime>>[];
-    for (var at = start; at.isBefore(widget.period.end); ) {
-      weeks.add([
-        for (var day = 0; day < 7; day++)
-          DateTime(at.year, at.month, at.day + day),
-      ]);
-      at = DateTime(at.year, at.month, at.day + 7);
-    }
+    final months = _months;
     final busiest = widget.days.values.fold<Duration>(
       Duration.zero,
       (most, row) => bucketTotal(row) > most ? bucketTotal(row) : most,
@@ -72,103 +73,38 @@ class _CalendarHeatmapState extends State<CalendarHeatmap> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        // The grid takes the width it is given: one column per week, sized to
-        // fit, down to a floor that turns on horizontal scrolling instead.
-        final available =
-            constraints.maxWidth - CalendarHeatmap.labelWidth - 8;
-        final cell = math.max(
-          CalendarHeatmap.minCell,
-          math.min(
-            CalendarHeatmap.maxCell,
-            available / weeks.length - CalendarHeatmap.gap,
-          ),
-        );
-        final numbers = cell >= CalendarHeatmap.numbersFrom;
-        final grid = Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                SizedBox(height: cell * 0.5 + 12),
-                for (final day in const [
-                  'Mon',
-                  'Tue',
-                  'Wed',
-                  'Thu',
-                  'Fri',
-                  'Sat',
-                  'Sun',
-                ])
-                  SizedBox(
-                    height: cell + CalendarHeatmap.gap,
-                    width: CalendarHeatmap.labelWidth,
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: Text(
-                        cell >= 18 ? day : day.substring(0, 1),
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(width: 8),
-            for (final week in weeks)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(
-                    height: cell * 0.5 + 12,
-                    width: cell + CalendarHeatmap.gap,
-                    // A month name is wider than one column, so let it run on
-                    // over the weeks that follow it.
-                    child: week.any((day) => day.day <= 7)
-                        ? OverflowBox(
-                            maxWidth: 90,
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              '${_month(week.firstWhere((d) => d.day <= 7))} '
-                              '${week.firstWhere((d) => d.day <= 7).year}',
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          )
-                        : null,
-                  ),
-                  for (final day in week)
-                    _Cell(
-                      day: day,
-                      row: widget.days[day] ?? const {},
-                      busiest: busiest,
-                      inPeriod: widget.period.contains(day),
-                      hovered: _hovered == day,
-                      size: cell,
-                      showNumber: numbers,
-                      colorOf: widget.colorOf,
-                      onHover: (over) =>
-                          setState(() => _hovered = over ? day : null),
-                    ),
-                ],
-              ),
-          ],
-        );
+        final (columns, cell) = _fit(constraints.maxWidth, months.length);
+        final blockWidth =
+            CalendarHeatmap.labelWidth + 7 * (cell + CalendarHeatmap.gap);
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (cell > CalendarHeatmap.minCell)
-              grid
-            else
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: grid,
+            Wrap(
+              spacing: math.max(
+                0,
+                (constraints.maxWidth - columns * blockWidth) /
+                    math.max(columns - 1, 1),
               ),
-            const SizedBox(height: 12),
+              runSpacing: 20,
+              children: [
+                for (final month in months)
+                  SizedBox(
+                    width: blockWidth,
+                    child: _Month(
+                      month: month,
+                      cell: cell,
+                      days: widget.days,
+                      period: widget.period,
+                      busiest: busiest,
+                      hovered: _hovered,
+                      colorOf: widget.colorOf,
+                      onHover: (day) => setState(() => _hovered = day),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 14),
             _Readout(
               day: _hovered,
               row: _hovered == null
@@ -181,6 +117,140 @@ class _CalendarHeatmapState extends State<CalendarHeatmap> {
       },
     );
   }
+
+  /// How many months go across, and how big a day is, for the width on offer.
+  ///
+  /// The most months that still leave a readable cell wins, so a year fills the
+  /// card in rows of three or four rather than one long strip.
+  static (int, double) _fit(double width, int months) {
+    for (var columns = math.min(months, 6); columns >= 1; columns--) {
+      final block = width / columns;
+      final cell =
+          (block - CalendarHeatmap.labelWidth) / 7 - CalendarHeatmap.gap;
+      if (cell >= CalendarHeatmap.minCell || columns == 1) {
+        return (columns, math.min(cell, CalendarHeatmap.maxCell));
+      }
+    }
+    return (1, CalendarHeatmap.minCell);
+  }
+}
+
+class _Month extends StatelessWidget {
+  const _Month({
+    required this.month,
+    required this.cell,
+    required this.days,
+    required this.period,
+    required this.busiest,
+    required this.hovered,
+    required this.colorOf,
+    required this.onHover,
+  });
+
+  final DateTime month;
+  final double cell;
+  final Map<DateTime, Map<String, Duration>> days;
+  final Period period;
+  final Duration busiest;
+  final DateTime? hovered;
+  final Color Function(String) colorOf;
+  final ValueChanged<DateTime?> onHover;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final first = DateTime(month.year, month.month);
+    final length = DateTime(month.year, month.month + 1, 0).day;
+    final leading = first.weekday - 1;
+    final rows = ((leading + length) / 7).ceil();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: EdgeInsets.only(left: CalendarHeatmap.labelWidth, bottom: 6),
+          child: Text(
+            '${_monthName(month)} ${month.year}',
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+        for (var row = 0; row < rows; row++)
+          Row(
+            children: [
+              SizedBox(
+                width: CalendarHeatmap.labelWidth,
+                height: cell + CalendarHeatmap.gap,
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Text(
+                      _weekOf(first, leading, row),
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              for (var column = 0; column < 7; column++)
+                _cellAt(row * 7 + column - leading + 1),
+            ],
+          ),
+        Padding(
+          padding: const EdgeInsets.only(left: CalendarHeatmap.labelWidth, top: 2),
+          child: Row(
+            children: [
+              for (final day in const ['M', 'T', 'W', 'T', 'F', 'S', 'S'])
+                SizedBox(
+                  width: cell + CalendarHeatmap.gap,
+                  child: Text(
+                    day,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _cellAt(int dayOfMonth) {
+    final length = DateTime(month.year, month.month + 1, 0).day;
+    if (dayOfMonth < 1 || dayOfMonth > length) {
+      return SizedBox(
+        width: cell + CalendarHeatmap.gap,
+        height: cell + CalendarHeatmap.gap,
+      );
+    }
+    final day = DateTime(month.year, month.month, dayOfMonth);
+    return _Cell(
+      day: day,
+      row: days[day] ?? const {},
+      busiest: busiest,
+      inPeriod: period.contains(day),
+      hovered: hovered == day,
+      size: cell,
+      colorOf: colorOf,
+      onHover: (over) => onHover(over ? day : null),
+    );
+  }
+
+  /// The week number, which is the one thing a week column loses when the grid
+  /// becomes a month.
+  static String _weekOf(DateTime first, int leading, int row) {
+    final monday = first.subtract(Duration(days: leading - row * 7));
+    final thursday = monday.add(const Duration(days: 3));
+    final week =
+        ((thursday.difference(DateTime(thursday.year)).inDays) / 7).floor() + 1;
+    return 'w$week';
+  }
 }
 
 class _Cell extends StatelessWidget {
@@ -191,7 +261,6 @@ class _Cell extends StatelessWidget {
     required this.inPeriod,
     required this.hovered,
     required this.size,
-    required this.showNumber,
     required this.colorOf,
     required this.onHover,
   });
@@ -202,7 +271,6 @@ class _Cell extends StatelessWidget {
   final bool inPeriod;
   final bool hovered;
   final double size;
-  final bool showNumber;
   final Color Function(String) colorOf;
   final ValueChanged<bool> onHover;
 
@@ -216,9 +284,11 @@ class _Cell extends StatelessWidget {
         : worked.inMinutes / busiest.inMinutes;
     final colour = project == null
         ? theme.colorScheme.surfaceContainerHighest.withValues(
-            alpha: inPeriod ? 1 : 0.4,
+            alpha: inPeriod ? 1 : 0.35,
           )
-        : colorOf(project).withValues(alpha: 0.28 + 0.72 * math.min(share, 1));
+        : colorOf(project).withValues(
+            alpha: (0.28 + 0.72 * math.min(share, 1)) * (inPeriod ? 1 : 0.35),
+          );
 
     return MouseRegion(
       onEnter: (_) => onHover(true),
@@ -234,23 +304,21 @@ class _Cell extends StatelessWidget {
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: colour,
-            borderRadius: BorderRadius.circular(size < 20 ? 3 : 6),
+            borderRadius: BorderRadius.circular(6),
             border: hovered
                 ? Border.all(color: theme.colorScheme.onSurface, width: 1.5)
                 : null,
           ),
-          child: showNumber
-              ? Text(
-                  '${day.day}',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: project == null
-                        ? theme.colorScheme.onSurfaceVariant.withValues(
-                            alpha: inPeriod ? 0.7 : 0.35,
-                          )
-                        : _inkOn(colour),
-                  ),
-                )
-              : null,
+          child: Text(
+            '${day.day}',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: project == null
+                  ? theme.colorScheme.onSurfaceVariant.withValues(
+                      alpha: inPeriod ? 0.7 : 0.3,
+                    )
+                  : _inkOn(colour),
+            ),
+          ),
         ),
       ),
     );
@@ -291,7 +359,7 @@ class _Readout extends StatelessWidget {
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         Text(
-          '${_weekday(day!)} ${day!.day} ${_month(day!)} ${day!.year}',
+          '${_weekdayName(day!)} ${day!.day} ${_monthName(day!)} ${day!.year}',
           style: theme.textTheme.labelLarge,
         ),
         if (entries.isEmpty)
@@ -321,10 +389,10 @@ class _Readout extends StatelessWidget {
   }
 }
 
-String _weekday(DateTime at) =>
+String _weekdayName(DateTime at) =>
     const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][at.weekday - 1];
 
-String _month(DateTime at) => const [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+String _monthName(DateTime at) => const [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
 ][at.month - 1];

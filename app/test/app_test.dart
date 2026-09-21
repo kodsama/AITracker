@@ -198,6 +198,47 @@ void main() {
     expect(find.text('Nothing in this window yet.'), findsOneWidget);
   });
 
+  testWidgets('the calendar lays a month out as a grid that fills the card', (
+    tester,
+  ) async {
+    await pump(tester);
+
+    await tester.tap(find.text('Graphs'));
+    await tester.pumpAndSettle();
+
+    final now = DateTime.now();
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December',
+    ];
+    expect(
+      find.text('${months[now.month - 1]} ${now.year}'),
+      findsOneWidget,
+    );
+    // Weekday header and the day numbers, not a strip of week columns.
+    expect(find.text('W'), findsOneWidget);
+    expect(find.text('${now.day}'), findsWidgets);
+  });
+
+  testWidgets('the arrows step the window by its own length', (tester) async {
+    final state = await pump(tester);
+
+    await tester.tap(find.byTooltip('Previous'));
+    await tester.pumpAndSettle();
+
+    expect(state.periodStep, -1);
+    final lastMonth = DateTime(DateTime.now().year, DateTime.now().month - 1);
+    expect(state.period.start, lastMonth);
+    // The stepped window says what it is, and can be dismissed back to today.
+    expect(find.byType(Chip), findsWidgets);
+
+    await tester.tap(find.byTooltip('Next'));
+    await tester.tap(find.byTooltip('Next'));
+    await tester.pumpAndSettle();
+
+    expect(state.periodStep, 1);
+  });
+
   testWidgets('a project is mapped onto the two apps and keeps its colour', (
     tester,
   ) async {

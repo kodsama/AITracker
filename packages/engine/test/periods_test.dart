@@ -81,6 +81,88 @@ void main() {
     });
   });
 
+  group('shiftPeriod', () {
+    test('a month window lands on whole months', () {
+      final back = shiftPeriod(
+        PeriodKind.thisMonth,
+        periodFor(PeriodKind.thisMonth, now: now),
+        -1,
+      );
+
+      expect(back.start, DateTime(2026, 8));
+      expect(back.end, DateTime(2026, 9));
+      expect(back.label, 'August 2026');
+    });
+
+    test('a week window moves seven days at a time', () {
+      final back = shiftPeriod(
+        PeriodKind.thisWeek,
+        periodFor(PeriodKind.thisWeek, now: now),
+        -2,
+      );
+
+      expect(back.start, DateTime(2026, 8, 31));
+      expect(back.end, DateTime(2026, 9, 7));
+      expect(back.label, '31 Aug to 6 Sep');
+    });
+
+    test('a day window keeps its name as a date', () {
+      final forward = shiftPeriod(
+        PeriodKind.today,
+        periodFor(PeriodKind.today, now: now),
+        1,
+      );
+
+      expect(forward.start, DateTime(2026, 9, 17));
+      expect(forward.label, 'Thu 17 Sep 2026');
+    });
+
+    test('quarters, semesters and years move by their own length', () {
+      expect(
+        shiftPeriod(
+          PeriodKind.thisQuarter,
+          periodFor(PeriodKind.thisQuarter, now: now),
+          -1,
+        ).start,
+        DateTime(2026, 4),
+      );
+      expect(
+        shiftPeriod(
+          PeriodKind.thisSemester,
+          periodFor(PeriodKind.thisSemester, now: now),
+          -1,
+        ).start,
+        DateTime(2026),
+      );
+      final lastYear = shiftPeriod(
+        PeriodKind.thisYear,
+        periodFor(PeriodKind.thisYear, now: now),
+        -1,
+      );
+      expect(lastYear.start, DateTime(2025));
+      expect(lastYear.label, '2025');
+    });
+
+    test('a custom range moves by the days it covers', () {
+      final custom = periodFor(
+        PeriodKind.custom,
+        now: now,
+        start: DateTime(2026, 9, 10),
+        end: DateTime(2026, 9, 12),
+      );
+
+      final back = shiftPeriod(PeriodKind.custom, custom, -1);
+
+      expect(back.start, DateTime(2026, 9, 7));
+      expect(back.end, DateTime(2026, 9, 10));
+    });
+
+    test('no step is the window it was given', () {
+      final window = periodFor(PeriodKind.thisMonth, now: now);
+      expect(shiftPeriod(PeriodKind.thisMonth, window, 0), same(window));
+    });
+  });
+
   group('bucketFor', () {
     Period span(int days) => Period(
       label: 'x',

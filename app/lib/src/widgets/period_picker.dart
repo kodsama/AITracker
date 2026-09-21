@@ -20,11 +20,28 @@ class PeriodPicker extends StatelessWidget {
       runSpacing: 8,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
+        IconButton(
+          tooltip: 'Previous',
+          icon: const Icon(Icons.chevron_left),
+          onPressed: () => state.stepPeriod(-1),
+        ),
+        IconButton(
+          tooltip: 'Next',
+          icon: const Icon(Icons.chevron_right),
+          onPressed: () => state.stepPeriod(1),
+        ),
+        if (state.periodStep != 0)
+          Chip(
+            label: Text(state.period.label),
+            onDeleted: () => state.setPeriod(state.periodKind),
+            deleteIcon: const Icon(Icons.close, size: 16),
+            backgroundColor: theme.colorScheme.secondaryContainer,
+          ),
         for (final kind in PeriodKind.values)
           if (kind != PeriodKind.custom)
             ChoiceChip(
               label: Text(kind.label),
-              selected: state.periodKind == kind,
+              selected: state.periodKind == kind && state.periodStep == 0,
               onSelected: (_) => state.setPeriod(kind),
             ),
         ActionChip(

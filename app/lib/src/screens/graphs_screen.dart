@@ -68,7 +68,8 @@ class GraphsScreen extends StatelessWidget {
             const SizedBox(width: 16),
             Flexible(
               child: Text(
-                '${period.label.toLowerCase()}, ${formatDuration(state.total)}',
+                '${state.periodStep == 0 ? period.label.toLowerCase() : period.label}, '
+                '${formatDuration(state.total)}',
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.titleMedium?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,

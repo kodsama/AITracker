@@ -65,6 +65,7 @@ class AppState extends ChangeNotifier {
   PeriodKind _periodKind = PeriodKind.thisMonth;
   DateTime? _customStart;
   DateTime? _customEnd;
+  int _periodStep = 0;
   CountMode _mode = CountMode.wallClock;
   String _query = '';
   bool _loading = true;
@@ -95,9 +96,15 @@ class AppState extends ChangeNotifier {
   /// Keys of the selected blocks.
   Set<String> get selected => _selected;
 
-  /// Window the screens are showing.
-  Period get period =>
-      periodFor(_periodKind, start: _customStart, end: _customEnd);
+  /// Window the screens are showing, after any stepping back or forward.
+  Period get period => shiftPeriod(
+    _periodKind,
+    periodFor(_periodKind, start: _customStart, end: _customEnd),
+    _periodStep,
+  );
+
+  /// How many windows away from the named one the screens are.
+  int get periodStep => _periodStep;
 
   /// Which named window is selected.
   PeriodKind get periodKind => _periodKind;
@@ -284,10 +291,17 @@ class AppState extends ChangeNotifier {
     DateTime? end,
   }) async {
     _periodKind = kind;
+    _periodStep = 0;
     if (kind == PeriodKind.custom) {
       _customStart = start ?? _customStart;
       _customEnd = end ?? _customEnd;
     }
+    await refresh();
+  }
+
+  /// Steps the window back or forward by its own length.
+  Future<void> stepPeriod(int delta) async {
+    _periodStep += delta;
     await refresh();
   }
 

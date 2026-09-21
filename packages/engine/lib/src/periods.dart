@@ -140,6 +140,88 @@ Period periodFor(
   };
 }
 
+/// The same window moved [steps] of its own length, forward or back.
+///
+/// Stepping moves by the unit the window is made of, so a month window lands on
+/// whole months and a week window on whole weeks. The label follows the range
+/// rather than the name it started with: a month back from "this month" is
+/// September, not "this month" again.
+Period shiftPeriod(PeriodKind kind, Period period, int steps) {
+  if (steps == 0) return period;
+  final months = switch (kind) {
+    PeriodKind.thisMonth || PeriodKind.lastMonth => 1,
+    PeriodKind.lastTwoMonths => 2,
+    PeriodKind.thisQuarter || PeriodKind.lastQuarter => 3,
+    PeriodKind.thisSemester => 6,
+    PeriodKind.thisYear => 12,
+    _ => 0,
+  };
+  final Period shifted;
+  if (months > 0) {
+    shifted = Period(
+      label: '',
+      start: DateTime(
+        period.start.year,
+        period.start.month + months * steps,
+        period.start.day,
+      ),
+      end: DateTime(
+        period.end.year,
+        period.end.month + months * steps,
+        period.end.day,
+      ),
+    );
+  } else {
+    final days = Duration(days: period.days * steps);
+    shifted = Period(
+      label: '',
+      start: period.start.add(days),
+      end: period.end.add(days),
+    );
+  }
+  return Period(
+    label: describePeriod(shifted),
+    start: shifted.start,
+    end: shifted.end,
+  );
+}
+
+/// What a range is called once it is no longer the named one: a single day by
+/// its date, a whole month or year by its name, anything else by its ends.
+String describePeriod(Period period) {
+  final last = period.end.subtract(const Duration(days: 1));
+  if (period.days == 1) {
+    return '${_weekday(period.start)} ${period.start.day} '
+        '${_month(period.start)} ${period.start.year}';
+  }
+  if (period.start == DateTime(period.start.year, period.start.month) &&
+      period.end == DateTime(period.start.year, period.start.month + 1)) {
+    return '${_monthInFull(period.start)} ${period.start.year}';
+  }
+  if (period.start == DateTime(period.start.year) &&
+      period.end == DateTime(period.start.year + 1)) {
+    return '${period.start.year}';
+  }
+  return '${period.start.day} ${_month(period.start)} to '
+      '${last.day} ${_month(last)}'
+      '${last.year == period.start.year ? '' : ' ${last.year}'}';
+}
+
+String _weekday(DateTime at) =>
+    const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][at.weekday - 1];
+
+String _month(DateTime at) => const [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+][at.month - 1];
+
+/// A month on its own is read out in full; a month at the end of a range is
+/// read short, where it sits beside a day number.
+String _monthInFull(DateTime at) => const [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+][at.month - 1];
+
 /// How wide one bar is.
 enum Bucket {
   /// One bar per day.
