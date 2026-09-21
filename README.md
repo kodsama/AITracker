@@ -122,8 +122,15 @@ Building
 ```
 dart pub get
 dart test packages/engine packages/mcp packages/cli
-cd app && flutter test && flutter build macos --release
+cd app && flutter test
+bash tool/build-calendar-helper.sh      # the EventKit helper the calendar needs
+bash tool/run-app.sh                    # builds and launches, refusing a stale bundle
 ```
+
+`tool/run-app.sh` rather than `flutter build macos` on its own: renaming the
+product once left Xcode exiting 0 while copying nothing into the bundle, so the
+app that opened was hours old. The script checks the code inside the bundle is
+newer than the build and cleans once if it is not.
 
 macOS only for now: both target apps are macOS, and the store paths are theirs.
 The engine itself has nothing platform-specific in it beyond those paths.
