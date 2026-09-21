@@ -7,6 +7,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  // A test run has no business writing to the user's log.
+  Log.enabled = false;
+
   late Directory temp;
   late String configPath;
   late String overridesPath;
