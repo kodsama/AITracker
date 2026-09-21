@@ -41,12 +41,25 @@ class BlockList extends StatelessWidget {
             if (newDay)
               Padding(
                 padding: EdgeInsets.only(top: index == 0 ? 8 : 24, bottom: 8),
-                child: Text(
-                  _dayLabel(block.day),
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    color: theme.colorScheme.primary,
-                    fontWeight: FontWeight.w600,
-                  ),
+                child: Row(
+                  children: [
+                    Text(
+                      _dayLabel(block.day),
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    TextButton(
+                      onPressed: () => state.selectDay(block.day),
+                      child: const Text('Select day'),
+                    ),
+                    TextButton(
+                      onPressed: () => state.selectWeek(block.day),
+                      child: const Text('Select week'),
+                    ),
+                  ],
                 ),
               ),
             _BlockRow(state: state, block: block),
@@ -120,9 +133,27 @@ class _BlockRow extends StatelessWidget {
                         backgroundColor: theme.colorScheme.errorContainer
                             .withValues(alpha: 0.35),
                       )
-                    : Text(
-                        block.project!,
-                        overflow: TextOverflow.ellipsis,
+                    : Row(
+                        children: [
+                          Container(
+                            width: 10,
+                            height: 10,
+                            margin: const EdgeInsets.only(right: 8),
+                            decoration: BoxDecoration(
+                              color: state.colorFor(
+                                block.project!,
+                                theme.brightness,
+                              ),
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                          ),
+                          Expanded(
+                            child: Text(
+                              block.project!,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                       ),
               ),
               Expanded(

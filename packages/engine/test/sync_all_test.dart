@@ -114,6 +114,31 @@ void main() {
     expect(reports.last.applied, isTrue);
   });
 
+  group('project names', () {
+    test('a company and a project make the ledger name', () {
+      expect(
+        composeProjectName('Byte Buddies', 'idbuddy'),
+        'Byte Buddies - idbuddy',
+      );
+      expect(composeProjectName('', 'idbuddy'), 'idbuddy');
+      expect(composeProjectName('Byte Buddies', ''), 'Byte Buddies');
+      expect(composeProjectName(' Byte Buddies ', ' idbuddy '), 'Byte Buddies - idbuddy');
+    });
+
+    test('and split back, first separator only', () {
+      expect(splitProjectName('Byte Buddies - idbuddy'), (
+        company: 'Byte Buddies',
+        project: 'idbuddy',
+      ));
+      // A project with its own separator keeps its whole name.
+      expect(splitProjectName('Byte Buddies - idbuddy - web'), (
+        company: 'Byte Buddies',
+        project: 'idbuddy - web',
+      ));
+      expect(splitProjectName('idbuddy'), (company: '', project: 'idbuddy'));
+    });
+  });
+
   group('ProjectLink', () {
     test('defaults the ledger name to its own, and round trips', () {
       const plain = ProjectLink(name: 'Byte Buddies - idbuddy');

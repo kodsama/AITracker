@@ -28,6 +28,35 @@ class ProjectRule {
 }
 
 
+/// The separator WorkingHours projects put between the company and the work.
+const String kProjectSeparator = ' - ';
+
+/// `Byte Buddies - idbuddy`, the shape the ledger names a project.
+///
+/// A company on its own is not a project, and a project without a company is
+/// just its own name, so both those cases fall back rather than leaving a
+/// dangling separator.
+String composeProjectName(String company, String project) {
+  final left = company.trim();
+  final right = project.trim();
+  if (left.isEmpty) return right;
+  if (right.isEmpty) return left;
+  return '$left$kProjectSeparator$right';
+}
+
+/// Splits `Byte Buddies - idbuddy` back into its two halves.
+///
+/// Only the first separator counts: a project called `idbuddy - web` under
+/// `Byte Buddies` keeps its own name intact.
+({String company, String project}) splitProjectName(String name) {
+  final at = name.indexOf(kProjectSeparator);
+  if (at < 0) return (company: '', project: name.trim());
+  return (
+    company: name.substring(0, at).trim(),
+    project: name.substring(at + kProjectSeparator.length).trim(),
+  );
+}
+
 /// How one project this tool tracks lines up with the two apps.
 ///
 /// Without an entry the project name is used verbatim in both. With one, the

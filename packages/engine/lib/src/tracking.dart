@@ -36,8 +36,9 @@ class TrackedBlock {
   /// `Company - Project`.
   String? get company {
     final name = project;
-    if (name == null || !name.contains(' - ')) return null;
-    return name.split(' - ').first.trim();
+    if (name == null) return null;
+    final company = splitProjectName(name).company;
+    return company.isEmpty ? null : company;
   }
 
   /// Local midnight of the day the block starts on.
@@ -101,7 +102,7 @@ class AiTracker {
     return template
         .replaceAll('{repo}', p.basename(block.directory))
         .replaceAll('{project}', name)
-        .replaceAll('{company}', name.contains(' - ') ? name.split(' - ').first : '')
+        .replaceAll('{company}', splitProjectName(name).company)
         .replaceAll('{sessions}', '${block.sessions}');
   }
 }

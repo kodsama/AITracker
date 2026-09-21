@@ -127,6 +127,85 @@ void main() {
     });
   });
 
+  group('the key', () {
+    McpServer guarded() => McpServer(
+      tools: buildTools(configPath: configPath, overridesPath: overridesPath),
+      requiredToken: 'let-me-in',
+    );
+
+    Future<Map<String, Object?>?> initialize(
+      McpServer server,
+      Map<String, Object?> params,
+    ) => server.handle({
+      'jsonrpc': '2.0',
+      'id': 1,
+      'method': 'initialize',
+      'params': params,
+    });
+
+    test('a client with the right key gets in', () async {
+      final server = guarded();
+
+      final response = await initialize(server, {'api_key': 'let-me-in'});
+
+      expect(response!['result'], isNotNull);
+      expect(server.authenticated, isTrue);
+    });
+
+    test('the three shapes a client might send it in all work', () async {
+      for (final params in [
+        {'apiKey': 'let-me-in'},
+        {'api_key': 'let-me-in'},
+        {
+          'authentication': {'token': 'let-me-in'},
+        },
+      ]) {
+        final server = guarded();
+        await initialize(server, params);
+        expect(server.authenticated, isTrue, reason: '$params');
+      }
+    });
+
+    test('a wrong key, or none, is refused and stays refused', () async {
+      final server = guarded();
+
+      final refused = await initialize(server, {'api_key': 'nope'});
+      expect((refused!['error']! as Map)['code'], -32001);
+      expect(server.authenticated, isFalse);
+
+      final called = await server.handle({
+        'jsonrpc': '2.0',
+        'id': 2,
+        'method': 'tools/list',
+      });
+      expect((called!['error']! as Map)['code'], -32001);
+      expect((called['error']! as Map)['message'], contains('initialize'));
+    });
+
+    test('stdio needs none, since spawning the binary proves as much', () async {
+      final open = McpServer(tools: buildTools(configPath: configPath));
+
+      expect(open.authenticated, isTrue);
+      final response = await open.handle({
+        'jsonrpc': '2.0',
+        'id': 1,
+        'method': 'tools/list',
+      });
+      expect(response!['result'], isNotNull);
+    });
+
+    test('each connection gets its own session', () async {
+      final server = guarded();
+      await initialize(server, {'api_key': 'let-me-in'});
+
+      final fresh = server.session();
+
+      expect(server.authenticated, isTrue);
+      expect(fresh.authenticated, isFalse);
+      expect(fresh.requiredToken, 'let-me-in');
+    });
+  });
+
   group('tools', () {
     test('list_hours reads the transcripts and keys every block', () async {
       final result = await call('list_hours');

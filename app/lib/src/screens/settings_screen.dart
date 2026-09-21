@@ -354,6 +354,13 @@ class SettingsScreen extends StatelessWidget {
           ),
         ),
 
+        _Section(
+          title: 'Log',
+          subtitle: 'Every scan, export, refusal and rename, shared by the app, '
+              'the command line and the MCP server.',
+          child: _LogView(path: Log.path()),
+        ),
+
         const SizedBox(height: 12),
         Text(
           'Configuration: ${state.configPath ?? AiTrackerConfig.defaultPath()}',
@@ -429,6 +436,80 @@ Future<void> _editSource(
     if (existing == null) chosen,
   ];
   await state.save(state.config.copyWith(sources: sources.toSet().toList()));
+}
+
+/// The tail of the log, with a way to open the whole thing.
+class _LogView extends StatefulWidget {
+  const _LogView({required this.path});
+
+  final String path;
+
+  @override
+  State<_LogView> createState() => _LogViewState();
+}
+
+class _LogViewState extends State<_LogView> {
+  List<String> _lines = Log.tail(40);
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 8, 0),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(widget.path, style: theme.textTheme.bodySmall),
+              ),
+              IconButton(
+                tooltip: 'Refresh',
+                icon: const Icon(Icons.refresh, size: 18),
+                onPressed: () => setState(() => _lines = Log.tail(40)),
+              ),
+              IconButton(
+                tooltip: 'Show in Finder',
+                icon: const Icon(Icons.folder_open, size: 18),
+                onPressed: () =>
+                    Process.runSync('/usr/bin/open', ['-R', widget.path]),
+              ),
+              TextButton(
+                onPressed: () {
+                  Log.clear();
+                  setState(() => _lines = const []);
+                },
+                child: const Text('Clear'),
+              ),
+            ],
+          ),
+        ),
+        Container(
+          height: 220,
+          margin: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: _lines.isEmpty
+              ? Text('Nothing logged yet.', style: theme.textTheme.bodySmall)
+              : ListView.builder(
+                  reverse: true,
+                  itemCount: _lines.length,
+                  itemBuilder: (context, index) => SelectableText(
+                    _lines[_lines.length - 1 - index],
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontFamily: 'Menlo',
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
 }
 
 class _Section extends StatelessWidget {

@@ -22,6 +22,7 @@ class SummaryHeader extends StatelessWidget {
     final totals = state.byProject.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     final longest = totals.isEmpty ? Duration.zero : totals.first.value;
+    final tokens = state.tokens;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(28, 24, 28, 8),
@@ -43,7 +44,10 @@ class SummaryHeader extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Text(
-                    'with an AI assistant',
+                    state.mode == CountMode.perProject
+                        ? 'across projects, ${formatDuration(state.wallClock)} '
+                              'on the clock'
+                        : 'with an AI assistant',
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.titleMedium?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
@@ -70,12 +74,42 @@ class SummaryHeader extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           PeriodPicker(state: state),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 24,
+            runSpacing: 6,
+            children: [
+              _Figure(
+                label: 'On the clock',
+                value: formatDuration(state.wallClock),
+                help: 'A minute counts once, however many sessions were in it',
+              ),
+              _Figure(
+                label: 'Across projects',
+                value: formatDuration(state.total),
+                help: 'Parallel sessions counted for each project',
+              ),
+              if (!tokens.isEmpty) ...[
+                _Figure(
+                  label: 'Tokens',
+                  value: _compact(tokens.total),
+                  help: 'Everything that passed through, cache included',
+                ),
+                _Figure(
+                  label: 'Not cached',
+                  value: _compact(tokens.fresh),
+                  help: 'Input, output and cache writes',
+                ),
+              ],
+            ],
+          ),
           if (totals.isNotEmpty) ...[
             const SizedBox(height: 20),
             for (final entry in totals.take(6))
               _ProjectBar(
                 name: entry.key,
                 time: entry.value,
+                colour: state.colorFor(entry.key, theme.brightness),
                 share: longest.inSeconds == 0
                     ? 0
                     : entry.value.inSeconds / longest.inSeconds,
@@ -87,15 +121,64 @@ class SummaryHeader extends StatelessWidget {
   }
 }
 
+/// One number with its name, for the row of figures under the picker.
+class _Figure extends StatelessWidget {
+  const _Figure({
+    required this.label,
+    required this.value,
+    required this.help,
+  });
+
+  final String label;
+  final String value;
+  final String help;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Tooltip(
+      message: help,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label.toUpperCase(),
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              letterSpacing: 0.6,
+            ),
+          ),
+          Text(
+            value,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// `1.2M`, because a token count in full is unreadable at a glance.
+String _compact(int count) {
+  if (count >= 1000000000) return '${(count / 1000000000).toStringAsFixed(1)}B';
+  if (count >= 1000000) return '${(count / 1000000).toStringAsFixed(1)}M';
+  if (count >= 1000) return '${(count / 1000).toStringAsFixed(1)}k';
+  return '$count';
+}
+
 class _ProjectBar extends StatelessWidget {
   const _ProjectBar({
     required this.name,
     required this.time,
+    required this.colour,
     required this.share,
   });
 
   final String name;
   final Duration time;
+  final Color colour;
   final double share;
 
   @override
@@ -105,8 +188,17 @@ class _ProjectBar extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 10),
       child: Row(
         children: [
+          Container(
+            width: 10,
+            height: 10,
+            margin: const EdgeInsets.only(right: 8),
+            decoration: BoxDecoration(
+              color: colour,
+              borderRadius: BorderRadius.circular(3),
+            ),
+          ),
           SizedBox(
-            width: 200,
+            width: 190,
             child: Text(name, overflow: TextOverflow.ellipsis),
           ),
           Expanded(
@@ -115,6 +207,7 @@ class _ProjectBar extends StatelessWidget {
               child: LinearProgressIndicator(
                 value: share,
                 minHeight: 10,
+                color: colour,
                 backgroundColor: theme.colorScheme.surfaceContainerHighest,
               ),
             ),

@@ -23,15 +23,20 @@ class BatchBar extends StatelessWidget {
         color: theme.colorScheme.primaryContainer,
         borderRadius: BorderRadius.circular(14),
       ),
-      child: Row(
+      child: Wrap(
+        spacing: 4,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Text(
-            '$count selected',
-            style: theme.textTheme.titleSmall?.copyWith(
-              color: theme.colorScheme.onPrimaryContainer,
+          Padding(
+            padding: const EdgeInsets.only(right: 12, left: 4),
+            child: Text(
+              '$count selected',
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: theme.colorScheme.onPrimaryContainer,
+              ),
             ),
           ),
-          const SizedBox(width: 20),
           _Action(
             icon: Icons.drive_file_move_outlined,
             label: 'Assign project',
@@ -53,8 +58,10 @@ class BatchBar extends StatelessWidget {
             label: 'Clear edits',
             onPressed: state.clearSelectedEdits,
           ),
-          const Spacer(),
-          TextButton(onPressed: state.toggleAll, child: const Text('Select all')),
+          TextButton(
+            onPressed: state.selectNone,
+            child: const Text('Clear selection'),
+          ),
         ],
       ),
     );

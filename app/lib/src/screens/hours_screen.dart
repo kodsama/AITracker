@@ -28,11 +28,130 @@ class HoursScreen extends StatelessWidget {
             builder: (context) => ExportDialog(state: state),
           ),
         ),
+        if (state.trouble != null) _Trouble(message: state.trouble!),
         if (strays.isNotEmpty) _UnmappedBanner(strays: strays),
+        _SearchRow(state: state),
         if (state.selected.isNotEmpty) BatchBar(state: state),
         const SizedBox(height: 4),
         Expanded(child: BlockList(state: state)),
       ],
+    );
+  }
+}
+
+/// The search box and the selection shortcuts.
+///
+/// The controller lives with the widget: rebuilding one on every keystroke,
+/// which a filtered list causes plenty of, throws the caret back to the start.
+class _SearchRow extends StatefulWidget {
+  const _SearchRow({required this.state});
+
+  final AppState state;
+
+  @override
+  State<_SearchRow> createState() => _SearchRowState();
+}
+
+class _SearchRowState extends State<_SearchRow> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.state.query,
+  );
+
+  @override
+  void didUpdateWidget(_SearchRow old) {
+    super.didUpdateWidget(old);
+    if (widget.state.query != _controller.text) {
+      _controller.text = widget.state.query;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = widget.state;
+    final all = state.blocks.isNotEmpty &&
+        state.selected.length == state.blocks.length;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(28, 8, 28, 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _controller,
+              decoration: InputDecoration(
+                hintText: 'Search the description, project or folder',
+                prefixIcon: const Icon(Icons.search, size: 20),
+                isDense: true,
+                border: const OutlineInputBorder(),
+                suffixIcon: state.query.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Clear',
+                        icon: const Icon(Icons.close, size: 18),
+                        onPressed: () {
+                          _controller.clear();
+                          state.setQuery('');
+                        },
+                      ),
+              ),
+              onChanged: state.setQuery,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            '${state.blocks.length} blocks',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(width: 12),
+          TextButton(
+            onPressed: state.blocks.isEmpty ? null : state.toggleAll,
+            child: Text(all ? 'Select none' : 'Select all'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Whatever went wrong last, said out loud rather than swallowed.
+class _Trouble extends StatelessWidget {
+  const _Trouble({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(28, 8, 28, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.errorContainer,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.error_outline,
+            size: 20,
+            color: theme.colorScheme.onErrorContainer,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(color: theme.colorScheme.onErrorContainer),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

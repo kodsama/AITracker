@@ -126,7 +126,10 @@ void main() {
 
     await tester.tap(find.text('Map it'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).last, 'Academie - AdBAI');
+    // Company and project are separate fields, as WorkingHours models them.
+    await tester.enterText(find.byType(TextField).at(1), 'Academie');
+    await tester.enterText(find.byType(TextField).at(2), 'AdBAI');
+    await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Save'));
     await tester.pumpAndSettle();
 
@@ -134,6 +137,11 @@ void main() {
     expect(
       AiTrackerConfig.load(configPath).rules.map((r) => r.project),
       contains('Academie - AdBAI'),
+    );
+    // The company rides along into the mapping, since the ledger tags it.
+    expect(
+      AiTrackerConfig.load(configPath).linkFor('Academie - AdBAI')?.company,
+      'Academie',
     );
   });
 
@@ -240,11 +248,11 @@ void main() {
     await tester.tap(find.text('Add rule'));
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField).last, 'Byte');
+    await tester.enterText(find.byType(TextField).at(2), 'idb');
     await tester.pumpAndSettle();
-    expect(find.text('Byte Buddies - idbuddy'), findsWidgets);
+    expect(find.text('idbuddy'), findsWidgets);
 
-    await tester.enterText(find.byType(TextField).last, 'Brand new');
+    await tester.enterText(find.byType(TextField).at(2), 'Brand new');
     await tester.pumpAndSettle();
     expect(find.text('Create "Brand new"'), findsOneWidget);
   });
