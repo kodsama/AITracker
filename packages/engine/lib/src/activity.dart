@@ -189,6 +189,14 @@ class TranscriptScanner {
           events.addAll(readTranscript(file, since: since));
           continue;
         }
+        // A transcript last written before the window cannot hold anything in
+        // it, so it is neither read nor cached: widening the window later is
+        // what pulls it in.
+        if (since != null &&
+            !store.holds(file.path) &&
+            file.lastModifiedSync().isBefore(since)) {
+          continue;
+        }
         // Cached events are the whole file, so the window is applied here
         // rather than while parsing.
         var parsed = false;

@@ -45,6 +45,9 @@ class TranscriptCache {
   /// How many transcripts are held.
   int get length => _entries.length;
 
+  /// Whether [path] has been read already.
+  bool holds(String path) => _entries.containsKey(path);
+
   /// The events of [path], read through [parse] when the file has changed.
   ///
   /// Returns null when the file cannot be looked at, which a caller treats as

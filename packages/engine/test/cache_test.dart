@@ -84,6 +84,23 @@ void main() {
     expect(cache.length, 1);
   });
 
+  test('a transcript older than the window is not read at all', () {
+    final old = write('old.jsonl', ['2026-01-01T09:00:00.000Z']);
+    old.setLastModifiedSync(DateTime(2026, 1, 1));
+    write('new.jsonl', ['2026-09-01T09:00:00.000Z']);
+    final cache = TranscriptCache();
+    final scanner = TranscriptScanner([
+      '${temp.path}/projects',
+    ], cache: cache);
+
+    expect(scanner.scan(since: DateTime(2026, 8)), hasLength(1));
+    expect(cache.holds('${projects.path}/old.jsonl'), isFalse);
+
+    // Widening the window is what pulls it in.
+    expect(scanner.scan(since: DateTime(2025)), hasLength(2));
+    expect(cache.holds('${projects.path}/old.jsonl'), isTrue);
+  });
+
   test('clearing it makes the next scan read everything again', () {
     write('a.jsonl', ['2026-09-01T09:00:00.000Z']);
     final cache = TranscriptCache();
