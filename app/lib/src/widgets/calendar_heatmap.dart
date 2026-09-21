@@ -38,8 +38,12 @@ class CalendarHeatmap extends StatefulWidget {
   static const double minCell = 19;
 
   /// Above this a cell stops looking like a calendar and starts looking like a
-  /// wall, so the block is left with space around it.
+  /// wall.
   static const double maxCell = 46;
+
+  /// The size a day wants to be. The number of months across the card is
+  /// worked out from this, then the cells grow to use what is left over.
+  static const double idealCell = 30;
 
   @override
   State<CalendarHeatmap> createState() => _CalendarHeatmapState();
@@ -60,7 +64,32 @@ class _CalendarHeatmapState extends State<CalendarHeatmap> {
       months.add(at);
       at = DateTime(at.year, at.month + 1);
     }
-    return months.isEmpty ? [DateTime(widget.period.start.year, widget.period.start.month)] : months;
+    if (months.isEmpty) {
+      months.add(DateTime(widget.period.start.year, widget.period.start.month));
+    }
+    return months;
+  }
+
+  /// [months] padded with the months either side until [wanted] blocks are
+  /// filled.
+  ///
+  /// A single week or month would otherwise sit in the corner of a wide card.
+  /// The months around it cost nothing to draw, read as context, and are dimmed
+  /// because they fall outside the window.
+  static List<DateTime> _pad(List<DateTime> months, int wanted) {
+    final padded = [...months];
+    var after = true;
+    while (padded.length < wanted) {
+      if (after) {
+        final last = padded.last;
+        padded.add(DateTime(last.year, last.month + 1));
+      } else {
+        final first = padded.first;
+        padded.insert(0, DateTime(first.year, first.month - 1));
+      }
+      after = !after;
+    }
+    return padded;
   }
 
   @override
@@ -74,6 +103,7 @@ class _CalendarHeatmapState extends State<CalendarHeatmap> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final (columns, cell) = _fit(constraints.maxWidth, months.length);
+        final blocks = _pad(months, columns);
         final blockWidth =
             CalendarHeatmap.labelWidth + 7 * (cell + CalendarHeatmap.gap);
 
@@ -88,7 +118,7 @@ class _CalendarHeatmapState extends State<CalendarHeatmap> {
               ),
               runSpacing: 20,
               children: [
-                for (final month in months)
+                for (final month in blocks)
                   SizedBox(
                     width: blockWidth,
                     child: _Month(
@@ -120,18 +150,33 @@ class _CalendarHeatmapState extends State<CalendarHeatmap> {
 
   /// How many months go across, and how big a day is, for the width on offer.
   ///
-  /// The most months that still leave a readable cell wins, so a year fills the
-  /// card in rows of three or four rather than one long strip.
+  /// The card is filled first: as many months as fit at a comfortable day size,
+  /// up to four across. Then the cells grow into whatever width is left, so
+  /// nothing sits in the corner of a wide window.
   static (int, double) _fit(double width, int months) {
-    for (var columns = math.min(months, 6); columns >= 1; columns--) {
-      final block = width / columns;
-      final cell =
-          (block - CalendarHeatmap.labelWidth) / 7 - CalendarHeatmap.gap;
-      if (cell >= CalendarHeatmap.minCell || columns == 1) {
-        return (columns, math.min(cell, CalendarHeatmap.maxCell));
-      }
-    }
-    return (1, CalendarHeatmap.minCell);
+    final ideal =
+        CalendarHeatmap.labelWidth +
+        7 * (CalendarHeatmap.idealCell + CalendarHeatmap.gap);
+    final fits = math.max(1, (width / ideal).floor());
+    // A long period keeps its own months; a short one is padded out to fill.
+    final columns = months > fits
+        ? _rowsFor(months, fits)
+        : math.min(fits, 4);
+    final cell =
+        (width / columns - CalendarHeatmap.labelWidth) / 7 -
+        CalendarHeatmap.gap;
+    return (
+      columns,
+      cell.clamp(CalendarHeatmap.minCell, CalendarHeatmap.maxCell),
+    );
+  }
+
+  /// With more months than fit across, spread them evenly over the rows they
+  /// need, so twelve months read as three rows of four rather than two rows and
+  /// a stub.
+  static int _rowsFor(int months, int fits) {
+    final rows = (months / fits).ceil();
+    return (months / rows).ceil();
   }
 }
 

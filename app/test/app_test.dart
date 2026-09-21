@@ -215,8 +215,13 @@ void main() {
       find.text('${months[now.month - 1]} ${now.year}'),
       findsOneWidget,
     );
-    // Weekday header and the day numbers, not a strip of week columns.
-    expect(find.text('W'), findsOneWidget);
+    // A month block per column, each with its weekday header: a wide card is
+    // filled with the months either side rather than left empty.
+    expect(find.text('W'), findsNWidgets(4));
+    expect(
+      find.text('${months[now.month % 12]} ${now.month == 12 ? now.year + 1 : now.year}'),
+      findsOneWidget,
+    );
     expect(find.text('${now.day}'), findsWidgets);
   });
 
