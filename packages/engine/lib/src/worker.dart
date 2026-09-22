@@ -176,6 +176,7 @@ class ScanWorker {
           config: config,
           overrides: overrides,
           history: history,
+          historyPath: null,
         );
         history.ingest(config.sources);
         responses.send([

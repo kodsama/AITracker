@@ -59,9 +59,9 @@ class AiTracker {
   /// repeatedly should hold one open and pass it.
   AiTracker({
     required this.config,
+    required this.historyPath,
     OverrideStore? overrides,
     this.history,
-    this.historyPath,
   }) : overrides = overrides ?? OverrideStore();
 
   /// Sources, thresholds, rules and sink settings.
@@ -73,7 +73,11 @@ class AiTracker {
   /// An archive already open, if the caller keeps one.
   final HistoryStore? history;
 
-  /// Where to open the archive when none was passed.
+  /// Where to open the archive when none was passed. Null means the archive
+  /// beside the default configuration.
+  ///
+  /// Required though it may be null: writing someone's real history from a test
+  /// that forgot to say where is not a mistake worth allowing.
   final String? historyPath;
 
   /// Blocks between [since] and [until], oldest first.

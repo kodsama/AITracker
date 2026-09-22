@@ -311,6 +311,7 @@ void main() {
 
     test('templates the description from the block', () {
       final tracking = AiTracker(
+        historyPath: null,
         config: const AiTrackerConfig(
           sources: [],
           rules: [ProjectRule(match: 'idbuddy', project: 'Byte Buddies - idbuddy')],
@@ -339,6 +340,7 @@ void main() {
           ),
         );
       final tracking = AiTracker(
+        historyPath: null,
         config: const AiTrackerConfig(sources: []),
         overrides: overrides,
       );
@@ -357,6 +359,7 @@ void main() {
           const BlockOverride(excluded: true),
         );
       final tracking = AiTracker(
+        historyPath: null,
         config: const AiTrackerConfig(
           sources: [],
           rules: [ProjectRule(match: 'idbuddy', project: 'BB - idbuddy')],
@@ -373,6 +376,7 @@ void main() {
 
     test('summarises by project, by day and by what is unmapped', () {
       final tracking = AiTracker(
+        historyPath: null,
         config: const AiTrackerConfig(
           sources: [],
           rules: [ProjectRule(match: 'idbuddy', project: 'BB - idbuddy')],
