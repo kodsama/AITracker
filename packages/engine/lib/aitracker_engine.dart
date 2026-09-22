@@ -16,6 +16,7 @@ export 'src/overrides.dart';
 export 'src/periods.dart';
 export 'src/rename.dart';
 export 'src/sinks/calendar.dart';
+export 'src/sinks/incoming.dart';
 export 'src/sinks/report.dart';
 export 'src/sinks/sync.dart';
 export 'src/sinks/tabular.dart';

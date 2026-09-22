@@ -550,6 +550,17 @@ class AppState extends ChangeNotifier {
     return reports;
   }
 
+  /// What WorkingHours now says about the blocks this tool wrote there.
+  List<UnitDifference> readBackFromLedger() => readBack(_config, _exclusive);
+
+  /// Adopts the ledger's version of the chosen blocks as hand edits.
+  Future<void> adoptFromLedger(Iterable<UnitDifference> chosen) async {
+    if (chosen.isEmpty) return;
+    adopt(_overrides, chosen);
+    _overrides.save(overridesPath);
+    await refresh();
+  }
+
   /// The key a networked client must present. Issued on first use.
   String get mcpToken => McpToken.ensure(tokenPath);
 

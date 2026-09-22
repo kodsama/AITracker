@@ -5,7 +5,7 @@ import '../state/app_state.dart';
 import '../widgets/batch_bar.dart';
 import '../widgets/block_list.dart';
 import '../widgets/summary_header.dart';
-import '../widgets/export_dialog.dart';
+import '../widgets/sync_dialog.dart';
 
 /// The main screen: what the transcripts say, and the button that files it.
 class HoursScreen extends StatelessWidget {
@@ -23,9 +23,9 @@ class HoursScreen extends StatelessWidget {
       children: [
         SummaryHeader(
           state: state,
-          onExport: () => showDialog<void>(
+          onSync: () => showDialog<void>(
             context: context,
-            builder: (context) => ExportDialog(state: state),
+            builder: (context) => SyncDialog(state: state),
           ),
         ),
         if (state.trouble != null) _Trouble(message: state.trouble!),

@@ -45,6 +45,7 @@ Tools
 | `summarize_hours` | Totals by project and by day. |
 | `list_unmapped` | Directories holding hours no rule covers. |
 | `sync_all` | File the blocks everywhere enabled in one call. |
+| `read_back_changes` | Units this tool wrote that were reassigned, renamed or retimed in WorkingHours; adopts them on request. |
 | `sync_workinghours` | File the blocks as WorkingHours units. Previews unless `dry_run` is false. |
 | `sync_diarium` | Write the daily journal entry. Previews unless `dry_run` is false. |
 | `export_spreadsheet` | Write the CSV and the workbook. |

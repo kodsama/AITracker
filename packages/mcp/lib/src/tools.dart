@@ -374,6 +374,58 @@ List<McpTool> buildTools({String? configPath, String? overridesPath}) {
       },
     ),
     McpTool(
+      name: 'read_back_changes',
+      description:
+          'What WorkingHours now says about the units this tool wrote there: '
+          'ones moved to another project, renamed or retimed. With adopt true '
+          'the ledger version is kept as a hand edit, so the next scan does not '
+          'undo it.',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'days': _days,
+          'since': _iso('Start of the window.'),
+          'until': _iso('End of the window.'),
+          'adopt': {
+            'type': 'boolean',
+            'description': 'Keep the ledger version. Default false, which only '
+                'reports the differences.',
+          },
+          'keys': {
+            'type': 'array',
+            'items': {'type': 'string'},
+            'description':
+                'Adopt only these blocks, as list_hours keys them. Omit for '
+                'every difference.',
+          },
+        },
+      },
+      run: (args) async {
+        final config = AiTrackerConfig.load(configPath);
+        final differences = readBack(config, read(args));
+        final wanted = args['keys'] == null
+            ? differences
+            : [
+                for (final difference in differences)
+                  if ((args['keys']! as List)
+                      .map((k) => '$k')
+                      .contains(difference.block.key))
+                    difference,
+              ];
+        final adopting = args['adopt'] as bool? ?? false;
+        if (adopting && wanted.isNotEmpty) {
+          final overrides = OverrideStore.load(overridesPath);
+          adopt(overrides, wanted);
+          overrides.save(overridesPath);
+        }
+        return {
+          'ok': true,
+          'adopted': adopting ? wanted.length : 0,
+          'changes': [for (final difference in wanted) difference.toJson()],
+        };
+      },
+    ),
+    McpTool(
       name: 'get_config',
       description:
           'The current configuration: transcript sources, thresholds, the '

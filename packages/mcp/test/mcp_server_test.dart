@@ -401,6 +401,59 @@ void main() {
       db.close();
     });
 
+    test('read_back_changes reports, and adopts only when told to', () async {
+      final wh = '${temp.path}/wh.db';
+      sqlite3.open(wh)
+        ..execute('''
+          create table Projects (ProjectId integer primary key autoincrement not null,
+            Name varchar not null, Icon varchar, Color varchar not null,
+            HourlyRate float not null, Currency varchar not null, Details varchar not null,
+            SortIndex integer not null, Hidden integer not null, IsLumpSum integer not null);
+          create table WorkUnits (WorkUnitId integer primary key autoincrement not null,
+            ProjectId integer not null, Duration bigint not null, End bigint not null,
+            Description varchar not null, Details varchar not null, Start bigint not null);
+        ''')
+        ..execute(
+          "insert into Projects (Name, Color, HourlyRate, Currency, Details, "
+          "SortIndex, Hidden, IsLumpSum) values "
+          "('Moved elsewhere', '#FF000000', 0.0, 'kr', '', 1, 0, 0)",
+        )
+        ..close();
+      AiTrackerConfig.load(configPath)
+          .copyWith(workingHours: WorkingHoursSinkConfig(databasePath: wh))
+          .save(configPath);
+
+      // One unit carrying this tool's marker, over the mapped block.
+      final blocks = ((await call('list_hours'))['blocks']! as List)
+          .cast<Map<String, Object?>>();
+      final mapped = blocks.firstWhere((b) => b['project'] != null);
+      final db = sqlite3.open(wh);
+      db.execute(
+        'insert into WorkUnits (ProjectId, Duration, End, Description, Details, '
+        'Start) values (1, 0, ?, ?, ?, ?)',
+        [
+          toTicks(DateTime.parse(mapped['end']! as String)),
+          'moved by hand',
+          WorkingHoursSink.marker,
+          toTicks(DateTime.parse(mapped['start']! as String)),
+        ],
+      );
+      db.close();
+
+      final reported = await call('read_back_changes');
+      expect(reported['adopted'], 0);
+      expect((reported['changes']! as List), hasLength(1));
+
+      final adopted = await call('read_back_changes', {'adopt': true});
+      expect(adopted['adopted'], 1);
+
+      final after = ((await call('list_hours'))['blocks']! as List)
+          .cast<Map<String, Object?>>()
+          .firstWhere((b) => b['key'] == mapped['key']);
+      expect(after['project'], 'Moved elsewhere');
+      expect(after['description'], 'moved by hand');
+    });
+
     test('export_spreadsheet previews before it writes', () async {
       final csv = '${temp.path}/hours.csv';
       AiTrackerConfig.load(configPath)

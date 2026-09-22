@@ -360,22 +360,27 @@ void main() {
     expect(find.text('Create "Brand new"'), findsOneWidget);
   });
 
-  testWidgets('sync previews first, and only writes when told to', (
+  testWidgets('sync shows both directions and only writes when told to', (
     tester,
   ) async {
     await pump(tester);
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Export…'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Sync…'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Export hours'), findsOneWidget);
+    expect(find.text('Sync'), findsOneWidget);
+    // Both directions are named, with nothing to take back here.
+    expect(
+      find.textContaining('Nothing has been changed in WorkingHours'),
+      findsOneWidget,
+    );
     expect(find.textContaining('would write 2 blocks'), findsOneWidget);
     expect(File('${temp.path}/hours.csv').existsSync(), isFalse);
 
     await tester.tap(find.widgetWithText(FilledButton, 'Write'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Exported'), findsOneWidget);
+    expect(find.text('Synced'), findsOneWidget);
     expect(File('${temp.path}/hours.csv').readAsLinesSync(), hasLength(3));
   });
 }

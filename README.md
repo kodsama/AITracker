@@ -58,9 +58,11 @@ mapping remembers they are the same work.
 `Settings` has the idle gap, the shortest block worth counting, the sinks, and
 the MCP endpoint.
 
-Filing always previews first. The dialog says what each sink would write, what
-it would skip as already logged, and what it refuses to touch; nothing is
-written until you press the button.
+Sync runs both ways and previews first. The dialog shows what WorkingHours has
+had done to the units this tool wrote there, moved to another project, renamed
+or trimmed, and what each target would be given; nothing is written or taken
+until you press the button. A correction taken back is kept as a hand edit, so
+the next scan does not undo it.
 
 Sinks
 -----

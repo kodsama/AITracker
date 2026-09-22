@@ -3,24 +3,28 @@ import 'package:flutter/material.dart';
 
 import '../state/app_state.dart';
 
-/// Writes the hours out, after showing exactly what each target would get.
+/// Both directions of a sync in one place: what each target would be given,
+/// and what WorkingHours has had done to it since.
 ///
-/// One direction only, and the dialog says so: the transcripts are the record,
-/// so hours go out and never come back. Names and colours are the two-way part,
-/// and they live under Projects.
-class ExportDialog extends StatefulWidget {
+/// Hours are measured from the transcripts, so out is the busy direction. The
+/// way back matters all the same: a unit moved to another project, renamed or
+/// trimmed in the ledger is a correction, and it would be lost on the next scan
+/// if it were not read back.
+class SyncDialog extends StatefulWidget {
   /// Creates the dialog.
-  const ExportDialog({required this.state, super.key});
+  const SyncDialog({required this.state, super.key});
 
   /// App state.
   final AppState state;
 
   @override
-  State<ExportDialog> createState() => _ExportDialogState();
+  State<SyncDialog> createState() => _SyncDialogState();
 }
 
-class _ExportDialogState extends State<ExportDialog> {
+class _SyncDialogState extends State<SyncDialog> {
   List<SyncReport>? _reports;
+  List<UnitDifference> _incoming = const [];
+  final Set<String> _taking = {};
   Set<String> _targets = {};
   bool _applied = false;
   bool _quitApps = true;
@@ -33,6 +37,8 @@ class _ExportDialogState extends State<ExportDialog> {
       for (final sink in kSinkNames)
         if (_enabled(sink)) sink,
     };
+    _incoming = widget.state.readBackFromLedger();
+    _taking.addAll(_incoming.map((d) => d.block.key));
     _preview();
   }
 
@@ -52,8 +58,12 @@ class _ExportDialogState extends State<ExportDialog> {
     });
   }
 
-  Future<void> _write() async {
+  Future<void> _apply() async {
     setState(() => _busy = true);
+    // What came back is adopted first, so what goes out carries it.
+    await widget.state.adoptFromLedger(
+      _incoming.where((d) => _taking.contains(d.block.key)),
+    );
     final reports = await widget.state.export(
       apply: true,
       quitApps: _quitApps,
@@ -62,6 +72,7 @@ class _ExportDialogState extends State<ExportDialog> {
     if (!mounted) return;
     setState(() {
       _reports = reports;
+      _incoming = widget.state.readBackFromLedger();
       _applied = true;
       _busy = false;
     });
@@ -74,21 +85,52 @@ class _ExportDialogState extends State<ExportDialog> {
     final enabled = kSinkNames.where(_enabled).toList();
 
     return AlertDialog(
-      title: Text(_applied ? 'Exported' : 'Export hours'),
+      title: Text(_applied ? 'Synced' : 'Sync'),
       content: SizedBox(
-        width: 580,
-        child: Column(
+        width: 620,
+        child: SingleChildScrollView(
+          child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Hours go out only. What comes back the other way is names and '
-              'colours, under Projects.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
+            _Heading(
+              icon: Icons.south_west,
+              text: _incoming.isEmpty
+                  ? 'Nothing has been changed in WorkingHours since it was '
+                        'last filed.'
+                  : 'Changed in WorkingHours since it was filed. Taking one '
+                        'keeps it through the next scan.',
             ),
-            const SizedBox(height: 12),
+            for (final difference in _incoming)
+              CheckboxListTile(
+                value: _taking.contains(difference.block.key),
+                onChanged: _applied
+                    ? null
+                    : (on) => setState(() {
+                        if (on ?? false) {
+                          _taking.add(difference.block.key);
+                        } else {
+                          _taking.remove(difference.block.key);
+                        }
+                      }),
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                title: Text(
+                  '${_day(difference.block.block.start)} '
+                  '${difference.block.description}',
+                  style: theme.textTheme.bodyMedium,
+                ),
+                subtitle: Text(
+                  difference.changes.join('\n'),
+                  style: theme.textTheme.bodySmall,
+                ),
+                isThreeLine: difference.changes.length > 1,
+              ),
+            const SizedBox(height: 16),
+            _Heading(
+              icon: Icons.north_east,
+              text: 'Filed out of the transcripts.',
+            ),
             if (enabled.isEmpty)
               const Text('No target is switched on. See Settings.')
             else
@@ -118,8 +160,7 @@ class _ExportDialogState extends State<ExportDialog> {
                     busy: _busy,
                   ),
                 ),
-            if (!_applied &&
-                _targets.any((s) => s == 'workinghours')) ...[
+            if (!_applied && _targets.contains('workinghours')) ...[
               const Divider(),
               CheckboxListTile(
                 value: _quitApps,
@@ -136,6 +177,7 @@ class _ExportDialogState extends State<ExportDialog> {
               ),
             ],
           ],
+          ),
         ),
       ),
       actions: [
@@ -145,13 +187,52 @@ class _ExportDialogState extends State<ExportDialog> {
         ),
         if (!_applied)
           FilledButton(
-            onPressed: _busy || _targets.isEmpty ? null : _write,
-            child: const Text('Write'),
+            onPressed: _busy || (_targets.isEmpty && _taking.isEmpty)
+                ? null
+                : _apply,
+            child: Text(_taking.isEmpty ? 'Write' : 'Take and write'),
           ),
       ],
     );
   }
 }
+
+/// A line saying which way the rows under it go.
+class _Heading extends StatelessWidget {
+  const _Heading({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// `Mon 21 Sep`, enough to place a row.
+String _day(DateTime at) =>
+    '${const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][at.weekday - 1]} '
+    '${at.day} '
+    '${const ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][at.month - 1]}';
 
 /// What a target is called on screen.
 String sinkName(String sink) => switch (sink) {

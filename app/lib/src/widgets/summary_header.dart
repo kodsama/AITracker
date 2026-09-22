@@ -8,13 +8,13 @@ import 'period_picker.dart';
 /// that files it.
 class SummaryHeader extends StatelessWidget {
   /// Creates the header.
-  const SummaryHeader({required this.state, required this.onExport, super.key});
+  const SummaryHeader({required this.state, required this.onSync, super.key});
 
   /// App state.
   final AppState state;
 
-  /// Called when the export button is pressed.
-  final VoidCallback onExport;
+  /// Called when the sync button is pressed.
+  final VoidCallback onSync;
 
   @override
   Widget build(BuildContext context) {
@@ -58,49 +58,57 @@ class SummaryHeader extends StatelessWidget {
               const Spacer(),
               if (state.loading)
                 const Padding(
-                  padding: EdgeInsets.only(right: 16, bottom: 8),
+                  padding: EdgeInsets.only(right: 4, bottom: 8),
                   child: SizedBox(
                     width: 18,
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   ),
                 ),
-              FilledButton.icon(
-                onPressed: state.blocks.isEmpty ? null : onExport,
-                icon: const Icon(Icons.upload_rounded, size: 20),
-                label: const Text('Export…'),
-              ),
             ],
           ),
           const SizedBox(height: 16),
           PeriodPicker(state: state),
           const SizedBox(height: 14),
-          Wrap(
-            spacing: 24,
-            runSpacing: 6,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              _Figure(
-                label: 'On the clock',
-                value: formatDuration(state.wallClock),
-                help: 'A minute counts once, however many sessions were in it',
-              ),
-              _Figure(
-                label: 'Across projects',
-                value: formatDuration(state.total),
-                help: 'Parallel sessions counted for each project',
-              ),
-              if (!tokens.isEmpty) ...[
-                _Figure(
-                  label: 'Tokens',
-                  value: _compact(tokens.total),
-                  help: 'Everything that passed through, cache included',
+              Expanded(
+                child: Wrap(
+                  spacing: 24,
+                  runSpacing: 6,
+                  children: [
+                    _Figure(
+                      label: 'On the clock',
+                      value: formatDuration(state.wallClock),
+                      help:
+                          'A minute counts once, however many sessions were in it',
+                    ),
+                    _Figure(
+                      label: 'Across projects',
+                      value: formatDuration(state.total),
+                      help: 'Parallel sessions counted for each project',
+                    ),
+                    if (!tokens.isEmpty) ...[
+                      _Figure(
+                        label: 'Tokens',
+                        value: _compact(tokens.total),
+                        help: 'Everything that passed through, cache included',
+                      ),
+                      _Figure(
+                        label: 'Not cached',
+                        value: _compact(tokens.fresh),
+                        help: 'Input, output and cache writes',
+                      ),
+                    ],
+                  ],
                 ),
-                _Figure(
-                  label: 'Not cached',
-                  value: _compact(tokens.fresh),
-                  help: 'Input, output and cache writes',
-                ),
-              ],
+              ),
+              FilledButton.icon(
+                onPressed: state.blocks.isEmpty ? null : onSync,
+                icon: const Icon(Icons.sync, size: 20),
+                label: const Text('Sync…'),
+              ),
             ],
           ),
           if (totals.isNotEmpty) ...[
