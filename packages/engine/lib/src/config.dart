@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'editors.dart';
+
 /// Maps a transcript's working directory onto a target project name.
 ///
 /// [match] is a case-insensitive substring of the session's directory; the
@@ -474,6 +476,9 @@ class AiTrackerConfig {
       add(p.join(home, assistant), onlyWithTranscripts: true);
     }
     found.sort();
+    // The editors write no transcript at all: their history is a database, and
+    // it is added by name rather than found by looking for one.
+    found.addAll(discoverEditorStores(home));
     return found;
   }
 

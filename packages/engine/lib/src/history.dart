@@ -8,6 +8,7 @@ import 'package:sqlite3/sqlite3.dart';
 
 import 'activity.dart';
 import 'config.dart';
+import 'editors.dart';
 import 'log.dart';
 
 /// Which reading of overlapping sessions a set of blocks is.
@@ -182,6 +183,24 @@ class HistoryStore {
     final days = <int>{};
 
     for (final source in sources) {
+      final editor = editorAt(source);
+      if (editor != null) {
+        _db.execute('begin');
+        final int? events;
+        try {
+          events = _ingestEditor(source, editor, days);
+          _db.execute('commit');
+        } on Object catch (error) {
+          _db.execute('rollback');
+          Log.error('could not read $source', error);
+          continue;
+        }
+        if (events == null) continue;
+        touched++;
+        added += events;
+        continue;
+      }
+
       final dir = Directory(source);
       if (!dir.existsSync()) {
         Log.warn('transcript folder is not there: $source');
@@ -219,11 +238,87 @@ class HistoryStore {
 
     if (touched > 0) {
       Log.info(
-        'archived $added events from $touched transcripts in '
+        'archived $added events from $touched sources in '
         '${DateTime.now().difference(started).inMilliseconds}ms',
       );
     }
     return added;
+  }
+
+  /// Reads one editor's state database, returning how many events it added, or
+  /// null when there was nothing new in it.
+  ///
+  /// An editor rewrites rows in place rather than appending to a file, so the
+  /// byte offset a transcript is followed by means nothing here. What is kept
+  /// instead is the newest event already archived, and only what happened after
+  /// it is read again. A turn saved with an older time than that is missed
+  /// rather than counted twice, which is the way round to be wrong.
+  int? _ingestEditor(String path, EditorStore store, Set<int> days) {
+    final file = File(path);
+    if (!file.existsSync()) {
+      Log.warn('editor database is not there: $path');
+      return null;
+    }
+    final stat = file.statSync();
+    final modified = stat.modified.millisecondsSinceEpoch;
+    final held = _db.select('select * from files where path = ?', [path]);
+    final known = held.isEmpty ? null : held.first;
+    if (known != null &&
+        known['size'] == stat.size &&
+        known['modified'] == modified) {
+      return null;
+    }
+
+    final watermark = known == null || known['offset'] == 0
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(known['offset']! as int);
+    final events = readEditorStore(path, store, after: watermark);
+
+    var newest = watermark?.millisecondsSinceEpoch ?? 0;
+    for (final event in events) {
+      final at = event.time.millisecondsSinceEpoch;
+      if (at > newest) newest = at;
+      days.add(_dayOf(at));
+    }
+
+    var id = known?['id'] as int?;
+    if (id == null) {
+      _db.execute(
+        'insert into files (path, size, modified, offset, head, format, '
+        'directory) values (?, ?, ?, ?, ?, ?, ?)',
+        [path, stat.size, modified, newest, '', store.key, ''],
+      );
+      id = _db.lastInsertRowId;
+    } else {
+      _db.execute(
+        'update files set size = ?, modified = ?, offset = ?, format = ? '
+        'where id = ?',
+        [stat.size, modified, newest, store.key, id],
+      );
+    }
+
+    if (events.isEmpty) return null;
+    final insert = _db.prepare(
+      'insert into events (file_id, at, directory, session, input, output, '
+      'cache_write, cache_read) values (?, ?, ?, ?, ?, ?, ?, ?)',
+    );
+    try {
+      for (final event in events) {
+        insert.execute([
+          id,
+          event.time.millisecondsSinceEpoch,
+          event.directory,
+          event.sessionId,
+          event.tokens.input,
+          event.tokens.output,
+          event.tokens.cacheWrite,
+          event.tokens.cacheRead,
+        ]);
+      }
+    } finally {
+      insert.close();
+    }
+    return events.length;
   }
 
   /// Reads one file, returning how many events it added, or null when there was

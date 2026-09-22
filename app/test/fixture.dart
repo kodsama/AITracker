@@ -10,8 +10,13 @@ class Fixture {
   Fixture(this.root);
 
   /// Creates the folders and writes two transcripts, one mapped and one not.
+  ///
+  /// Home points here too, so anything looked for in the user's own folders,
+  /// an editor's database among them, is looked for in this one instead and
+  /// the tests say the same thing on any machine.
   factory Fixture.create() {
     final root = Directory.systemTemp.createTempSync('aitracker_app');
+    AiTrackerConfig.environment = {'HOME': root.path};
     final fixture = Fixture(root);
     fixture.writeTranscripts();
     fixture.config().save(fixture.configPath);
@@ -115,5 +120,8 @@ class Fixture {
   );
 
   /// Removes everything.
-  void dispose() => root.deleteSync(recursive: true);
+  void dispose() {
+    AiTrackerConfig.environment = Platform.environment;
+    root.deleteSync(recursive: true);
+  }
 }

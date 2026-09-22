@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:aitracker_engine/aitracker_engine.dart';
+import 'package:path/path.dart' as p;
+import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -374,5 +377,82 @@ void main() {
 
     expect(reopened.events(), hasLength(1));
     expect(reopened.summary().events, 1);
+  });
+
+  group('an editor database', () {
+    /// Cursor's shape: a conversation naming its folder, and a row per turn.
+    String cursorStore(List<String> times, {int touched = 0}) {
+      final path = '${temp.path}/Cursor/User/globalStorage/state.vscdb';
+      Directory(p.dirname(path)).createSync(recursive: true);
+      final db = sqlite3.open(path);
+      db.execute(
+        'create table if not exists cursorDiskKV (key text primary key, '
+        'value text)',
+      );
+      db.execute('delete from cursorDiskKV');
+      db.execute('insert into cursorDiskKV values (?, ?)', [
+        'composerData:c',
+        json.encode({
+          'lastUpdatedAt': touched,
+          'workspaceIdentifier': {
+            'uri': {'fsPath': '/repo/editor'},
+          },
+        }),
+      ]);
+      for (var i = 0; i < times.length; i++) {
+        db.execute('insert into cursorDiskKV values (?, ?)', [
+          'bubbleId:c:t$i',
+          json.encode({'createdAt': times[i]}),
+        ]);
+      }
+      db.close();
+      return path;
+    }
+
+    test('is read, and read again only for what is new in it', () {
+      final path = cursorStore([
+        '2026-09-01T09:00:00.000Z',
+        '2026-09-01T09:05:00.000Z',
+      ]);
+
+      expect(store.ingest([path]), 2);
+      expect(store.events().map((e) => e.directory).toSet(), {'/repo/editor'});
+
+      // Nothing has changed, so the database is not opened at all.
+      expect(store.ingest([path]), 0);
+
+      cursorStore([
+        '2026-09-01T09:00:00.000Z',
+        '2026-09-01T09:05:00.000Z',
+        '2026-09-01T09:20:00.000Z',
+      ], touched: DateTime.utc(2026, 9, 1, 9, 20).millisecondsSinceEpoch);
+      File(path).setLastModifiedSync(DateTime.now().add(const Duration(minutes: 1)));
+
+      expect(store.ingest([path]), 1);
+      expect(store.events(), hasLength(3));
+    });
+
+    test('counts as a source, and its blocks are the same blocks', () {
+      final path = cursorStore([
+        '2026-09-01T09:00:00.000Z',
+        '2026-09-01T09:05:00.000Z',
+      ]);
+      store.ingest([path]);
+
+      final blocks = store.blocks(
+        from: DateTime.utc(2026, 8, 30).toLocal(),
+        to: DateTime.utc(2026, 9, 3).toLocal(),
+        idleGap: const Duration(minutes: 10),
+        minBlock: Duration.zero,
+      );
+
+      expect(blocks, hasLength(1));
+      expect(blocks.single.directory, '/repo/editor');
+      expect(store.summary().files, 1);
+    });
+
+    test('one that is gone is reported, not fatal', () {
+      expect(store.ingest(['${temp.path}/Cursor/User/globalStorage/state.vscdb']), 0);
+    });
   });
 }

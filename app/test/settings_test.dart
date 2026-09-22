@@ -1,3 +1,5 @@
+import 'dart:io';
+
 
 import 'package:aitracker/main.dart';
 import 'package:aitracker/src/reveal.dart';
@@ -241,6 +243,47 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(state.config.sources, [fixture.root.path]);
+  });
+
+  testWidgets('an editor database is listed as one, and a missing one as gone', (
+    tester,
+  ) async {
+    final store = File(
+      '${fixture.root.path}/Cursor/User/globalStorage/state.vscdb',
+    )..createSync(recursive: true);
+
+    await openSettings(tester);
+    await state.save(
+      state.config.copyWith(
+        sources: [store.path, '${fixture.root.path}/gone'],
+      ),
+    );
+    await tester.pumpAndSettle();
+    await scrollTo(tester, find.text(store.path));
+
+    expect(find.text('An editor database'), findsOneWidget);
+    expect(find.byIcon(Icons.storage_outlined), findsOneWidget);
+    expect(find.text('Not there any more'), findsOneWidget);
+    expect(find.byIcon(Icons.folder_off_outlined), findsOneWidget);
+  });
+
+  testWidgets('an editor the list has never had is offered, and taken', (
+    tester,
+  ) async {
+    final store = File(
+      '${fixture.root.path}/Library/Application Support/Cursor/User/'
+      'globalStorage/state.vscdb',
+    )..createSync(recursive: true);
+
+    await openSettings(tester);
+    expect(find.text('An editor on this machine, not read'), findsOneWidget);
+
+    await scrollTo(tester, find.text('Read it'));
+    await tester.tap(find.text('Read it'));
+    await tester.pumpAndSettle();
+
+    expect(state.config.sources, contains(store.path));
+    expect(find.text('An editor on this machine, not read'), findsNothing);
   });
 
   testWidgets('with no transcript folder at all it says so', (tester) async {

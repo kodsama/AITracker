@@ -85,8 +85,10 @@ class SettingsScreen extends StatelessWidget {
 
         _Section(
           title: 'Transcripts',
-          subtitle: 'The folders an assistant writes its sessions to. Claude '
-              'Code and the Gemini and Antigravity CLIs are read.',
+          subtitle: 'Where the assistants keep what they did. Claude Code and '
+              'the Gemini and Antigravity CLIs write a folder of sessions; '
+              'Cursor and Antigravity keep a database instead, and it is read '
+              'the same way.',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -94,17 +96,17 @@ class SettingsScreen extends StatelessWidget {
                 ListTile(
                   dense: true,
                   leading: Icon(
-                    Directory(source).existsSync()
-                        ? Icons.folder_outlined
-                        : Icons.folder_off_outlined,
+                    _sourceIcon(source),
                     size: 20,
-                    color: Directory(source).existsSync()
+                    color: _sourceExists(source)
                         ? null
                         : theme.colorScheme.error,
                   ),
                   title: Text(source),
-                  subtitle: Directory(source).existsSync()
-                      ? null
+                  subtitle: _sourceExists(source)
+                      ? (editorAt(source) == null
+                            ? null
+                            : const Text('An editor database'))
                       : const Text('Not there any more'),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -134,6 +136,26 @@ class SettingsScreen extends StatelessWidget {
                   dense: true,
                   title: Text('No transcript folder yet. Add one.'),
                 ),
+              // An editor installed after the first run would otherwise sit
+              // there unread: the list is only filled in when there is none.
+              for (final store in discoverEditorStores(
+                AiTrackerConfig.homeDirectory(),
+              ))
+                if (!config.sources.contains(store))
+                  ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.storage_outlined, size: 20),
+                    title: Text(store),
+                    subtitle: const Text('An editor on this machine, not read'),
+                    trailing: TextButton(
+                      onPressed: () => state.save(
+                        state.config.copyWith(
+                          sources: [...state.config.sources, store],
+                        ),
+                      ),
+                      child: const Text('Read it'),
+                    ),
+                  ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
                 child: Align(
@@ -445,6 +467,15 @@ class SettingsScreen extends StatelessWidget {
 }
 
 /// Adds a transcript folder, or points an existing one somewhere else.
+/// Whether a source is still where it was.
+bool _sourceExists(String source) =>
+    Directory(source).existsSync() || File(source).existsSync();
+
+IconData _sourceIcon(String source) {
+  if (!_sourceExists(source)) return Icons.folder_off_outlined;
+  return editorAt(source) == null ? Icons.folder_outlined : Icons.storage_outlined;
+}
+
 Future<void> _editSource(
   BuildContext context,
   AppState state,

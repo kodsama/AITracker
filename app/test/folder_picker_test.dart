@@ -75,6 +75,36 @@ void main() {
     expect(find.text('No folder at that path'), findsOneWidget);
   });
 
+  testWidgets('a typed path to an editor database is taken as it is', (
+    tester,
+  ) async {
+    final store = File(
+      '${root.path}/Cursor/User/globalStorage/state.vscdb',
+    )..createSync(recursive: true);
+
+    await open(tester, initial: root.path);
+    await tester.enterText(find.byType(TextField), store.path);
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsNothing);
+  });
+
+  testWidgets('a path to a database no editor keeps is still a wrong path', (
+    tester,
+  ) async {
+    await open(tester, initial: root.path);
+
+    await tester.enterText(
+      find.byType(TextField),
+      '${root.path}/a-file.txt',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    expect(find.text('No folder at that path'), findsOneWidget);
+  });
+
   testWidgets('choosing a folder hands it back', (tester) async {
     await open(tester, initial: root.path);
     await tester.tap(find.text('Visible'));

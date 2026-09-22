@@ -17,10 +17,19 @@ What it does
 
 Claude Code keeps a JSONL transcript per session under `~/.claude/projects`,
 every line stamped with a time and the directory the session was working in.
-The Gemini and Antigravity CLIs keep a history file of the same shape. Those
-are read once into a local archive that is never pruned, and everything else is
-computed from the archive: the hours, the tokens, the graphs, the unmapped
-time. An assistant that drops its own logs after a month takes nothing with it.
+The Gemini and Antigravity CLIs keep a history file of the same shape. Cursor
+and Antigravity write no transcript at all and keep their history in the
+`state.vscdb` that every VS Code fork has, so those are read out of SQLite
+instead. All of it goes once into a local archive that is never pruned, and
+everything else is computed from the archive: the hours, the tokens, the
+graphs, the unmapped time. An assistant that drops its own logs after a month
+takes nothing with it.
+
+Two things about the editors are worth knowing. Cursor writes the folder on a
+conversation only from its 2026.4 release; anything older names it nowhere in
+the database, so those conversations are left out rather than guessed at, and
+the log says how many. Cursor also stopped recording token counts locally
+around the same time and now writes zeroes, so its hours arrive without tokens.
 
 The archive holds the events rather than the blocks, so the idle gap stays a
 setting: change it and the whole history is read again through the new one,

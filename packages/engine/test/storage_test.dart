@@ -168,18 +168,32 @@ void main() {
     });
 
     test('sources are discovered from the assistant config directories', () {
+      final was = AiTrackerConfig.environment;
+      addTearDown(() => AiTrackerConfig.environment = was);
+      AiTrackerConfig.environment = {'HOME': temp.path};
+
+      // Claude Code keeps a projects folder per configuration directory, the
+      // other CLIs keep theirs in the assistant folder itself, and the editors
+      // keep a database under application support.
+      Directory('${temp.path}/.claude/projects').createSync(recursive: true);
+      Directory('${temp.path}/.claude-work/projects').createSync(recursive: true);
+      Directory('${temp.path}/.gemini/chats').createSync(recursive: true);
+      File('${temp.path}/.gemini/chats/a.jsonl').writeAsStringSync('{}\n');
+      // An assistant folder with no transcript in it is not a source.
+      Directory('${temp.path}/.codex').createSync(recursive: true);
+      final store = File(
+        '${temp.path}/Library/Application Support/Cursor/User/globalStorage/'
+        'state.vscdb',
+      )..createSync(recursive: true);
+
       final found = AiTrackerConfig.discoverSources();
-      for (final source in found) {
-        // Claude Code keeps a projects folder; the Gemini and Antigravity CLIs
-        // keep their history under ~/.gemini.
-        expect(
-          p.basename(source) == 'projects' || p.basename(source) == '.gemini',
-          isTrue,
-          reason: source,
-        );
-        expect(Directory(source).existsSync(), isTrue);
-      }
-      expect(found, equals([...found]..sort()));
+
+      expect(found, [
+        '${temp.path}/.claude-work/projects',
+        '${temp.path}/.claude/projects',
+        '${temp.path}/.gemini',
+        store.path,
+      ]);
     });
 
     test('a configuration file holding the wrong shape falls back', () {

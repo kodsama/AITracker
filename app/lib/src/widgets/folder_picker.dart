@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
@@ -7,6 +8,9 @@ import 'package:path/path.dart' as p;
 ///
 /// The system panel hides dotfolders unless you know the keystroke, and every
 /// transcript folder is one, so this browser lists them like any other.
+///
+/// An editor keeps its history in a file rather than a folder, so a typed path
+/// to one of those is taken as it is.
 Future<String?> showFolderPicker(
   BuildContext context, {
   String? initial,
@@ -78,6 +82,8 @@ class _FolderPickerState extends State<_FolderPicker> {
     final path = value.trim().replaceFirst(RegExp('^~'), _home);
     if (Directory(path).existsSync()) {
       _goTo(path);
+    } else if (editorAt(path) != null && File(path).existsSync()) {
+      Navigator.of(context).pop(path);
     } else {
       setState(() => _error = 'No folder at that path');
     }
