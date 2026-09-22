@@ -107,7 +107,20 @@ void main() {
       expect(pulled.linkFor('Byte Buddies - WebWrapper')?.color, isNull);
     });
 
-    test('nothing to take leaves the configuration alone', () {
+    test('a project with no mapping at all gains one carrying the colour', () {
+    const ledger = Catalog(
+      projects: [
+        LedgerProject(name: 'Never - filed', hidden: false, color: '#FF445566'),
+      ],
+    );
+
+    final pulled = pullColors(config, compareColors(config, ledger));
+
+    expect(pulled.linkFor('Never - filed')?.color, '#FF445566');
+    expect(pulled.linkFor('Never - filed')?.workingHours, isNull);
+  });
+
+  test('nothing to take leaves the configuration alone', () {
       final pulled = pullColors(config, const []);
 
       expect(identical(pulled, config), isTrue);

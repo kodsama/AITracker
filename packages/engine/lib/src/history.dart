@@ -83,7 +83,10 @@ class HistoryStore {
   static const int schemaVersion = 1;
 
   /// How much of a transcript is held in memory at once.
-  static const int _chunkBytes = 1 << 22;
+  ///
+  /// Settable so a test can put a line across a chunk boundary without writing
+  /// four megabytes to do it.
+  static int chunkBytes = 1 << 22;
 
   /// The archive beside the configuration.
   static String defaultPath() => besideConfig(null);
@@ -271,7 +274,7 @@ class HistoryStore {
       while (position < stat.size) {
         handle.setPositionSync(position);
         final data = handle.readSync(
-          math.min(_chunkBytes, stat.size - position),
+          math.min(chunkBytes, stat.size - position),
         );
         if (data.isEmpty) break;
         position += data.length;

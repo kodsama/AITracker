@@ -307,6 +307,63 @@ void main() {
     expect(all(), isEmpty);
   });
 
+  test('a line spanning two chunks is read whole', () {
+    // A line longer than the read window has to be stitched back together.
+    HistoryStore.chunkBytes = 64;
+    addTearDown(() => HistoryStore.chunkBytes = 1 << 22);
+    write('a.jsonl', [
+      '{"timestamp":"2026-09-01T09:00:00.000Z","cwd":"/repo",'
+          '"padding":"${'x' * 300}"}',
+      line('2026-09-01T09:05:00.000Z'),
+    ]);
+
+    expect(ingest(), 2);
+    expect(all().first.directory, '/repo');
+  });
+
+  test('a transcript outside a projects folder keeps its own folder name', () {
+    final loose = Directory('${temp.path}/elsewhere/sessions')
+      ..createSync(recursive: true);
+    File('${loose.path}/a.jsonl').writeAsStringSync(
+      '{"timestamp":"2026-09-01T09:00:00.000Z"}\n',
+    );
+
+    store.ingest(['${temp.path}/elsewhere']);
+
+    // Nothing better to call it than where it was found.
+    expect(all().single.directory, loose.path);
+  });
+
+  test('a transcript that cannot be opened is rolled back, not half-read', () {
+    write('good.jsonl', [line('2026-09-01T09:00:00.000Z')]);
+    // A directory wearing a transcript's name: stat succeeds, opening does not.
+    Directory('${projects.path}/bad.jsonl').createSync();
+
+    expect(ingest(), 1);
+    expect(all(), hasLength(1));
+    expect(store.summary().files, 1);
+  });
+
+  test('a transcript it may not open leaves the archive as it was', () {
+    write('good.jsonl', [line('2026-09-01T09:00:00.000Z')]);
+    final closed = write('closed.jsonl', [line('2026-09-02T09:00:00.000Z')]);
+    Process.runSync('/bin/chmod', ['000', closed.path]);
+    addTearDown(() => Process.runSync('/bin/chmod', ['644', closed.path]));
+
+    expect(ingest(), 1);
+    expect(all(), hasLength(1));
+    // The one that could not be opened left nothing half-written behind it.
+    expect(store.summary().files, 1);
+  });
+
+  test('the archive sits beside whichever configuration is in use', () {
+    expect(HistoryStore.besideConfig(null), HistoryStore.defaultPath());
+    expect(
+      HistoryStore.besideConfig('/somewhere/config.json'),
+      '/somewhere/history.db',
+    );
+  });
+
   test('reopening finds what the last run archived', () {
     write('a.jsonl', [line('2026-09-01T09:00:00.000Z')]);
     ingest();

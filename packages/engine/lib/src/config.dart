@@ -199,6 +199,7 @@ class CalendarSinkConfig {
     this.enabled = false,
     this.calendarName = 'AI work',
     this.titleTemplate = 'AI work: {hours}',
+    this.helperPath = '',
     this.automatic = false,
   });
 
@@ -211,6 +212,9 @@ class CalendarSinkConfig {
   /// Title of each day's event. `{hours}` is the day's total.
   final String titleTemplate;
 
+  /// The EventKit helper to run. Empty looks in the usual places.
+  final String helperPath;
+
   /// Whether the app republishes it as soon as it finds new activity.
   final bool automatic;
 
@@ -220,6 +224,7 @@ class CalendarSinkConfig {
         enabled: json['enabled'] as bool? ?? false,
         calendarName: json['calendar_name'] as String? ?? 'AI work',
         titleTemplate: json['title_template'] as String? ?? 'AI work: {hours}',
+        helperPath: json['helper_path'] as String? ?? '',
         automatic: json['automatic'] as bool? ?? false,
       );
 
@@ -228,6 +233,7 @@ class CalendarSinkConfig {
     'enabled': enabled,
     'calendar_name': calendarName,
     'title_template': titleTemplate,
+    if (helperPath.isNotEmpty) 'helper_path': helperPath,
     'automatic': automatic,
   };
 }
@@ -336,11 +342,11 @@ class AiTrackerConfig {
 
   /// Reads a configuration from its JSON form.
   factory AiTrackerConfig.fromJson(Map<String, Object?> json) {
+    // No sources key means a configuration that has never been written, so the
+    // machine is swept for them. An empty list is a choice, and is kept.
     final sources = (json['sources'] as List?)?.map((e) => '$e').toList();
     return AiTrackerConfig(
-      sources: sources == null || sources.isEmpty
-          ? discoverSources()
-          : sources,
+      sources: sources ?? discoverSources(),
       idleGap: Duration(minutes: json['idle_gap_minutes'] as int? ?? 10),
       minBlock: Duration(minutes: json['min_block_minutes'] as int? ?? 5),
       rules: [
@@ -452,7 +458,7 @@ class AiTrackerConfig {
       found.add(path);
     }
 
-    final configured = Platform.environment['CLAUDE_CONFIG_DIR'];
+    final configured = environment['CLAUDE_CONFIG_DIR'];
     if (configured != null && configured.isNotEmpty) {
       add(p.join(configured, 'projects'));
     }
@@ -506,11 +512,15 @@ class AiTrackerConfig {
     return false;
   }
 
+  /// The environment the paths are read from.
+  ///
+  /// A seam rather than a reach for [Platform.environment]: a test can say
+  /// where home is, which is what keeps it out of the real one.
+  static Map<String, String> environment = Platform.environment;
+
   /// The user's home directory.
   static String homeDirectory() =>
-      Platform.environment['HOME'] ??
-      Platform.environment['USERPROFILE'] ??
-      Directory.current.path;
+      environment['HOME'] ?? environment['USERPROFILE'] ?? Directory.current.path;
 
   /// Resolves [path] against the home directory when it is relative.
   static String resolveHome(String path) =>
@@ -519,7 +529,7 @@ class AiTrackerConfig {
   /// Where the configuration lives: `$AITRACKER_CONFIG`, else
   /// `~/Library/Application Support/AITracker/config.json`.
   static String defaultPath() {
-    final override = Platform.environment['AITRACKER_CONFIG'];
+    final override = environment['AITRACKER_CONFIG'];
     if (override != null && override.isNotEmpty) return override;
     return p.join(
       homeDirectory(),

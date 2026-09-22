@@ -49,9 +49,13 @@ void main() {
 
   tearDown(() => temp.deleteSync(recursive: true));
 
-  Future<int> cli(List<String> args) =>
-      run(args, out: out, err: err, configPath: configPath,
-          overridesPath: '${temp.path}/overrides.json');
+  Future<int> cli(List<String> args) => run(
+    args,
+    out: out,
+    err: err,
+    configPath: configPath,
+    overridesPath: '${temp.path}/overrides.json',
+  );
 
   test('preview lists the blocks, the totals and what is unmapped', () async {
     expect(await cli(['preview']), 0);

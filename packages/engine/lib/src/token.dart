@@ -11,9 +11,7 @@ import 'config.dart';
 /// Stdio needs none: a client that can spawn the binary already has everything
 /// the binary has. The TCP endpoint is a socket anything on the machine can
 /// reach, so it is gated on this.
-class McpToken {
-  const McpToken._();
-
+abstract final class McpToken {
   /// Where the key is kept, beside the configuration.
   static String path() =>
       p.join(p.dirname(AiTrackerConfig.defaultPath()), 'mcp-token');

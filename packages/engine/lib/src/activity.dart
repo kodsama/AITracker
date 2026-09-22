@@ -259,15 +259,23 @@ List<WorkBlock> buildBlocks(
     if (i == sorted.length - 2) spans.last.tokens += sorted[i + 1].tokens;
   }
 
+  // A minute spent in another repository in the middle of an hour's work is a
+  // glance, not a second block: anything too short to keep is absorbed, and the
+  // work either side of it stays one stretch.
   final merged = <_Span>[];
   for (final span in spans) {
-    final last = merged.isEmpty ? null : merged.last;
-    if (last != null &&
-        last.directory == span.directory &&
-        span.start.difference(last.end) <= idleGap) {
-      last.end = span.end;
-      last.sessions.addAll(span.sessions);
-      last.tokens += span.tokens;
+    final previous = merged.lastIndexWhere((m) => m.directory == span.directory);
+    final interrupted = previous >= 0 &&
+        merged
+            .skip(previous + 1)
+            .every((m) => m.end.difference(m.start) < minBlock);
+    if (previous >= 0 &&
+        interrupted &&
+        span.start.difference(merged[previous].end) <= idleGap) {
+      merged[previous].end = span.end;
+      merged[previous].sessions.addAll(span.sessions);
+      merged[previous].tokens += span.tokens;
+      merged.removeRange(previous + 1, merged.length);
     } else {
       merged.add(span);
     }

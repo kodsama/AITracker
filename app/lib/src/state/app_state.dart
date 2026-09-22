@@ -539,12 +539,16 @@ class AppState extends ChangeNotifier {
     _config = config;
     config.save(configPath);
     _catalog = Catalog.read(config);
-    if (config.mcpEnabled && _mcp == null) {
+    await refresh();
+    // After the scan, not before: a scan clears the last thing that went
+    // wrong, and an endpoint that would not open is worth keeping on screen.
+    // Against the configuration as it stands now, not as it was passed in, so
+    // one save finishing late cannot undo a newer one.
+    if (_config.mcpEnabled && _mcp == null) {
       await startMcp();
-    } else if (!config.mcpEnabled && _mcp != null) {
+    } else if (!_config.mcpEnabled && _mcp != null) {
       await stopMcp();
     }
-    await refresh();
   }
 
   /// Previews or performs the writes, and returns what each sink reported.

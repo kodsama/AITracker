@@ -89,6 +89,33 @@ void main() {
       expect(blocks.last.start, DateTime(2026, 9, 2));
     });
 
+    test('a block says what it is, for a log line', () {
+      final block = buildBlocks([
+        event('2026-09-01T09:00:00', '/repo/a'),
+        event('2026-09-01T09:08:00', '/repo/a'),
+      ]).single;
+
+      expect(
+        block.toString(),
+        'WorkBlock(/repo/a, 2026-09-01 09:00:00.000 -> 2026-09-01 09:08:00.000)',
+      );
+    });
+
+    test('a detour into another repository does not chop a stretch in two', () {
+      // A minute in /repo/b in the middle of an hour on /repo/a: too short to
+      // keep, and the hour either side is one block, not two.
+      final blocks = buildBlocks([
+        event('2026-09-01T09:00:00', '/repo/a'),
+        event('2026-09-01T09:20:00', '/repo/a'),
+        event('2026-09-01T09:21:00', '/repo/b'),
+        event('2026-09-01T09:22:00', '/repo/a'),
+        event('2026-09-01T09:40:00', '/repo/a'),
+      ], idleGap: const Duration(minutes: 30));
+
+      expect(blocks.map((b) => b.directory), ['/repo/a']);
+      expect(blocks.single.duration, const Duration(minutes: 40));
+    });
+
     test('counts the sessions that fed a block', () {
       final blocks = buildBlocks([
         event('2026-09-01T09:00:00', '/repo/a', 'one'),
@@ -145,6 +172,14 @@ void main() {
         )!.time,
         DateTime(2026, 9, 1, 9),
       );
+    });
+
+    test('a number after a space is still a number', () {
+      expect(extractNumber('{"timestamp": 1784620258659}', '"timestamp":'),
+          1784620258659);
+      expect(extractNumber('{"a":1}', '"missing":'), 0);
+      expect(extractString('{"cwd":"/repo"}', '"none":'), isNull);
+      expect(extractString('{"cwd":"unterminated', '"cwd":"'), isNull);
     });
 
     test('a line with no time is not an event', () {
@@ -297,6 +332,15 @@ void main() {
     test('falls back to the discovered sources for a missing file', () {
       final config = AiTrackerConfig.load('/nonexistent/config.json');
       expect(config.sources, AiTrackerConfig.discoverSources());
+    });
+
+    test('no sources at all is a choice, not a reason to go looking', () {
+      final temp = Directory.systemTemp.createTempSync('aitracker_sources');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final path = '${temp.path}/config.json';
+      const AiTrackerConfig(sources: []).save(path);
+
+      expect(AiTrackerConfig.load(path).sources, isEmpty);
     });
   });
 

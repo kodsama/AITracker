@@ -41,7 +41,9 @@ class BlockList extends StatelessWidget {
             if (newDay)
               Padding(
                 padding: EdgeInsets.only(top: index == 0 ? 8 : 24, bottom: 8),
-                child: Row(
+                child: Wrap(
+                  spacing: 12,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Text(
                       _dayLabel(block.day),
@@ -50,7 +52,6 @@ class BlockList extends StatelessWidget {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(width: 12),
                     TextButton(
                       onPressed: () => state.selectDay(block.day),
                       child: const Text('Select day'),

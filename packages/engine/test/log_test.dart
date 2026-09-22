@@ -63,6 +63,28 @@ void main() {
     expect(Log.tail(), isEmpty);
   });
 
+  test('a log it cannot write is not a failure', () {
+    // A path under a file rather than a folder: writing it cannot work.
+    Log.useFile('/dev/null/nope/log.txt');
+
+    expect(() => Log.info('swallowed'), returnsNormally);
+    expect(Log.tail(), isEmpty);
+  });
+
+  test('a log it may not read tails as nothing', () {
+    Log.info('written');
+    Process.runSync('/bin/chmod', ['000', '${temp.path}/log.txt']);
+    addTearDown(
+      () => Process.runSync('/bin/chmod', ['644', '${temp.path}/log.txt']),
+    );
+
+    expect(Log.tail(), isEmpty);
+  });
+
+  test('it knows where it goes by default', () {
+    expect(Log.defaultPath(), endsWith('AI Tracker.log'));
+  });
+
   test('an unwritten log tails as nothing', () {
     Log.useFile('/nonexistent/place/log.txt');
     expect(Log.tail(), isEmpty);

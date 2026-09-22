@@ -127,6 +127,46 @@ void main() {
     });
   });
 
+  group('the protocol it speaks', () {
+    test('a version is advertised, and the client may ask for another', () async {
+      final server = McpServer(tools: const []);
+      expect(server.version, kMcpDefaultVersion);
+      expect(server.protocolVersion, '2025-06-18');
+
+      final answer = await server.handle({
+        'jsonrpc': '2.0',
+        'id': 1,
+        'method': 'initialize',
+        'params': {'protocolVersion': '2024-11-05'},
+      });
+
+      expect(
+        (answer!['result']! as Map)['protocolVersion'],
+        '2024-11-05',
+      );
+    });
+
+    test('a key is read from wherever the client put it', () {
+      expect(extractToken({'api_key': 'a'}), 'a');
+      expect(extractToken({'apiKey': 'b'}), 'b');
+      expect(
+        extractToken({
+          'authentication': {'token': 'c'},
+        }),
+        'c',
+      );
+      expect(
+        extractToken({
+          'authentication': {'api_key': 'd'},
+        }),
+        'd',
+      );
+      expect(extractToken({}), isNull);
+      expect(extractToken({'api_key': ''}), isNull);
+      expect(extractToken({'authentication': 'not a map'}), isNull);
+    });
+  });
+
   group('the key', () {
     McpServer guarded() => McpServer(
       tools: buildTools(configPath: configPath, overridesPath: overridesPath),
@@ -452,6 +492,105 @@ void main() {
           .firstWhere((b) => b['key'] == mapped['key']);
       expect(after['project'], 'Moved elsewhere');
       expect(after['description'], 'moved by hand');
+    });
+
+    test('sync_calendar drives the helper it was pointed at', () async {
+      // A stub standing in for the EventKit helper: the tool is what is under
+      // test, not the calendar.
+      final helper = File('${temp.path}/helper.sh')
+        ..writeAsStringSync(
+          '#!/bin/sh\n'
+          'echo \'{"ok":true,"calendar":"AI work","created":1,"updated":0,'
+          '"removed":0,"unchanged":0}\'\n',
+        );
+      Process.runSync('/bin/chmod', ['755', helper.path]);
+      AiTrackerConfig.load(configPath)
+          .copyWith(
+            calendar: CalendarSinkConfig(
+              enabled: true,
+              helperPath: helper.path,
+            ),
+          )
+          .save(configPath);
+
+      final result = await call('sync_calendar', {'dry_run': false});
+
+      expect(result['ok'], isTrue);
+      expect(result['applied'], isTrue);
+      expect((result['notes']! as List).first, contains('added 1 days'));
+    });
+
+    test('sync_project_colors writes the mapped colours', () async {
+      final wh = '${temp.path}/colours.db';
+      sqlite3.open(wh)
+        ..execute(
+          'create table Projects (ProjectId integer primary key autoincrement '
+          'not null, Name varchar not null, Icon varchar, Color varchar not null, '
+          'HourlyRate float not null, Currency varchar not null, '
+          'Details varchar not null, SortIndex integer not null, '
+          'Hidden integer not null, IsLumpSum integer not null)',
+        )
+        ..execute(
+          "insert into Projects (Name, Color, HourlyRate, Currency, Details, "
+          "SortIndex, Hidden, IsLumpSum) values "
+          "('Byte Buddies - idbuddy', '#FF000000', 0.0, 'kr', '', 1, 0, 0)",
+        )
+        ..close();
+      AiTrackerConfig.load(configPath)
+          .copyWith(
+            workingHours: WorkingHoursSinkConfig(databasePath: wh),
+            links: const [
+              ProjectLink(name: 'Byte Buddies - idbuddy', color: '#FF6C4AB6'),
+            ],
+          )
+          .save(configPath);
+
+      final preview = await call('sync_project_colors');
+      expect(preview['applied'], isFalse);
+
+      final written = await call('sync_project_colors', {'dry_run': false});
+
+      expect(written['ok'], isTrue);
+      final db = sqlite3.open(wh);
+      expect(db.select('select Color from Projects').single['Color'], '#FF6C4AB6');
+      db.close();
+    });
+
+    test('read_back_changes can be narrowed to the blocks named', () async {
+      final result = await call('read_back_changes', {
+        'keys': ['nothing-like-a-key'],
+        'adopt': true,
+      });
+
+      expect(result['adopted'], 0);
+      expect((result['changes']! as List), isEmpty);
+    });
+
+    test('a window can be given as days, or as two dates', () async {
+      final days = await call('summarize_hours', {'days': 3650});
+      expect((days['by_day']! as Map), isNotEmpty);
+
+      final dated = await call('summarize_hours', {
+        'since': '2026-09-01',
+        'until': '2026-09-02',
+      });
+      expect((dated['by_day']! as Map).keys, ['2026-09-01']);
+
+      final none = await call('summarize_hours', {'until': '2020-01-01'});
+      expect((none['by_day']! as Map), isEmpty);
+    });
+
+    test('a rule can be added after the ones already there', () async {
+      await call('set_project_rule', {
+        'match': 'first',
+        'project': 'A - one',
+        'first': true,
+      });
+      await call('set_project_rule', {'match': 'last', 'project': 'B - two'});
+
+      final rules = AiTrackerConfig.load(configPath).rules;
+      expect(rules.first.match, 'first');
+      expect(rules.last.match, 'last');
     });
 
     test('export_spreadsheet previews before it writes', () async {

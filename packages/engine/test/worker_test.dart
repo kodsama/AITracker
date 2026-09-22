@@ -47,6 +47,22 @@ void main() {
     end: DateTime(2026, 9, 30),
   );
 
+  test('starting it without being told where to log is allowed', () async {
+    final quiet = await ScanWorker.start(
+      logging: false,
+      historyPath: '${temp.path}/quiet.db',
+    );
+    addTearDown(quiet.stop);
+
+    final result = await quiet.scan(
+      config: config,
+      overrides: OverrideStore(),
+      window: window(),
+    );
+
+    expect(result.wallClock, hasLength(2));
+  });
+
   test('returns both readings, resolved through the rules', () async {
     final result = await worker.scan(
       config: config,
@@ -121,6 +137,40 @@ void main() {
     // The archive only speaks up when it took something in.
     expect(Log.tail().length, afterFirst);
     expect(File('${temp.path}/history.db').existsSync(), isTrue);
+  });
+
+  test('a request it cannot read comes back as the reason, not a crash', () {
+    final history = HistoryStore.open('${temp.path}/direct.db');
+    addTearDown(history.close);
+
+    final answer = ScanWorker.respond([
+      1,
+      config.toJson(),
+      <String, Object?>{},
+      'not a date',
+      DateTime(2026, 10).toIso8601String(),
+      true,
+    ], history);
+
+    expect(answer, isA<String>());
+    expect(answer as String, contains('not a date'));
+  });
+
+  test('a request it can read comes back as both readings', () {
+    final history = HistoryStore.open('${temp.path}/direct.db');
+    addTearDown(history.close);
+
+    final answer = ScanWorker.respond([
+      1,
+      config.toJson(),
+      <String, Object?>{},
+      DateTime(2026, 9).toIso8601String(),
+      DateTime(2026, 10).toIso8601String(),
+      true,
+    ], history);
+
+    expect(answer, isA<ScanResult>());
+    expect((answer as ScanResult).wallClock, hasLength(2));
   });
 
   test('a stopped worker answers nothing rather than hanging', () async {

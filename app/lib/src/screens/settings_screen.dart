@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
+import '../reveal.dart';
 import '../state/app_state.dart';
 import '../widgets/folder_picker.dart';
 
@@ -38,7 +39,7 @@ class SettingsScreen extends StatelessWidget {
                 min: 2,
                 max: 60,
                 onSettled: (value) => state.save(
-                  config.copyWith(idleGap: Duration(minutes: value.round())),
+                  state.config.copyWith(idleGap: Duration(minutes: value.round())),
                 ),
               ),
               _Slider(
@@ -48,7 +49,7 @@ class SettingsScreen extends StatelessWidget {
                 min: 1,
                 max: 30,
                 onSettled: (value) => state.save(
-                  config.copyWith(minBlock: Duration(minutes: value.round())),
+                  state.config.copyWith(minBlock: Duration(minutes: value.round())),
                 ),
               ),
               Padding(
@@ -117,7 +118,7 @@ class SettingsScreen extends StatelessWidget {
                         tooltip: 'Remove',
                         icon: const Icon(Icons.close, size: 18),
                         onPressed: () => state.save(
-                          config.copyWith(
+                          state.config.copyWith(
                             sources: [
                               for (final other in config.sources)
                                 if (other != source) other,
@@ -156,8 +157,8 @@ class SettingsScreen extends StatelessWidget {
               SwitchListTile(
                 value: config.workingHours.enabled,
                 onChanged: (value) => state.save(
-                  config.copyWith(
-                    workingHours: _workingHours(config, enabled: value),
+                  state.config.copyWith(
+                    workingHours: _workingHours(state.config, enabled: value),
                   ),
                 ),
                 title: const Text('Export to WorkingHours'),
@@ -167,7 +168,7 @@ class SettingsScreen extends StatelessWidget {
                 onChanged: config.workingHours.enabled
                     ? (value) => state.save(
                         config.copyWith(
-                          workingHours: _workingHours(config, automatic: value),
+                          workingHours: _workingHours(state.config, automatic: value),
                         ),
                       )
                     : null,
@@ -183,8 +184,8 @@ class SettingsScreen extends StatelessWidget {
                   config.workingHours.databasePath,
                 ),
                 onPicked: (value) => state.save(
-                  config.copyWith(
-                    workingHours: _workingHours(config, databasePath: value),
+                  state.config.copyWith(
+                    workingHours: _workingHours(state.config, databasePath: value),
                   ),
                 ),
               ),
@@ -193,7 +194,7 @@ class SettingsScreen extends StatelessWidget {
                 help: 'Placeholders: {repo} {project} {company} {sessions}',
                 value: config.workingHours.descriptionTemplate,
                 onSubmitted: (value) => state.save(
-                  config.copyWith(
+                  state.config.copyWith(
                     workingHours: _workingHours(
                       config,
                       descriptionTemplate: value,
@@ -216,7 +217,7 @@ class SettingsScreen extends StatelessWidget {
               SwitchListTile(
                 value: config.calendar.enabled,
                 onChanged: (value) => state.save(
-                  config.copyWith(calendar: _calendar(config, enabled: value)),
+                  state.config.copyWith(calendar: _calendar(state.config, enabled: value)),
                 ),
                 title: const Text('Publish the calendar'),
                 subtitle: Text(_helperState()),
@@ -226,7 +227,7 @@ class SettingsScreen extends StatelessWidget {
                 onChanged: config.calendar.enabled
                     ? (value) => state.save(
                         config.copyWith(
-                          calendar: _calendar(config, automatic: value),
+                          calendar: _calendar(state.config, automatic: value),
                         ),
                       )
                     : null,
@@ -236,7 +237,7 @@ class SettingsScreen extends StatelessWidget {
                 label: 'Calendar name',
                 value: config.calendar.calendarName,
                 onSubmitted: (value) => state.save(
-                  config.copyWith(calendar: _calendar(config, name: value)),
+                  state.config.copyWith(calendar: _calendar(state.config, name: value)),
                 ),
               ),
               _Field(
@@ -244,7 +245,18 @@ class SettingsScreen extends StatelessWidget {
                 help: '{hours} is the day\'s total',
                 value: config.calendar.titleTemplate,
                 onSubmitted: (value) => state.save(
-                  config.copyWith(calendar: _calendar(config, title: value)),
+                  state.config.copyWith(calendar: _calendar(state.config, title: value)),
+                ),
+              ),
+              _PathField(
+                label: 'Helper',
+                help: 'Leave empty to look in the usual places',
+                defaultName: 'aitracker-calendar',
+                value: config.calendar.helperPath,
+                onPicked: (value) => state.save(
+                  state.config.copyWith(
+                    calendar: _calendar(state.config, helper: value),
+                  ),
                 ),
               ),
             ],
@@ -258,7 +270,7 @@ class SettingsScreen extends StatelessWidget {
               SwitchListTile(
                 value: config.tabular.enabled,
                 onChanged: (value) => state.save(
-                  config.copyWith(tabular: _tabular(config, enabled: value)),
+                  state.config.copyWith(tabular: _tabular(state.config, enabled: value)),
                 ),
                 title: const Text('Export CSV and Excel'),
               ),
@@ -267,7 +279,7 @@ class SettingsScreen extends StatelessWidget {
                 onChanged: config.tabular.enabled
                     ? (value) => state.save(
                         config.copyWith(
-                          tabular: _tabular(config, automatic: value),
+                          tabular: _tabular(state.config, automatic: value),
                         ),
                       )
                     : null,
@@ -277,14 +289,14 @@ class SettingsScreen extends StatelessWidget {
                 label: 'CSV',
                 value: AiTrackerConfig.resolveHome(config.tabular.csvPath),
                 onPicked: (value) => state.save(
-                  config.copyWith(tabular: _tabular(config, csv: value)),
+                  state.config.copyWith(tabular: _tabular(state.config, csv: value)),
                 ),
               ),
               _PathField(
                 label: 'Excel',
                 value: AiTrackerConfig.resolveHome(config.tabular.xlsxPath),
                 onPicked: (value) => state.save(
-                  config.copyWith(tabular: _tabular(config, xlsx: value)),
+                  state.config.copyWith(tabular: _tabular(state.config, xlsx: value)),
                 ),
               ),
             ],
@@ -302,7 +314,7 @@ class SettingsScreen extends StatelessWidget {
               SwitchListTile(
                 value: config.mcpEnabled,
                 onChanged: (value) =>
-                    state.save(config.copyWith(mcpEnabled: value)),
+                    state.save(state.config.copyWith(mcpEnabled: value)),
                 title: const Text('Listen on localhost'),
                 subtitle: Text(
                   state.mcpPort == null
@@ -315,7 +327,7 @@ class SettingsScreen extends StatelessWidget {
                 value: '${config.mcpPort}',
                 onSubmitted: (value) {
                   final port = int.tryParse(value);
-                  if (port != null) state.save(config.copyWith(mcpPort: port));
+                  if (port != null) state.save(state.config.copyWith(mcpPort: port));
                 },
               ),
               ListTile(
@@ -381,7 +393,7 @@ class SettingsScreen extends StatelessWidget {
   }
 
   String _helperState() {
-    const sink = CalendarSink(config: CalendarSinkConfig());
+    final sink = CalendarSink(config: state.config.calendar);
     return sink.helper == null
         ? 'The EventKit helper is not built yet: run '
               'tool/build-calendar-helper.sh'
@@ -409,11 +421,13 @@ class SettingsScreen extends StatelessWidget {
     bool? automatic,
     String? name,
     String? title,
+    String? helper,
   }) => CalendarSinkConfig(
     enabled: enabled ?? config.calendar.enabled,
     automatic: automatic ?? config.calendar.automatic,
     calendarName: name ?? config.calendar.calendarName,
     titleTemplate: title ?? config.calendar.titleTemplate,
+    helperPath: helper ?? config.calendar.helperPath,
   );
 
   static TabularSinkConfig _tabular(
@@ -495,10 +509,7 @@ class _ArchiveState extends State<_Archive> {
               IconButton(
                 tooltip: 'Show in Finder',
                 icon: const Icon(Icons.folder_open, size: 18),
-                onPressed: () => Process.runSync('/usr/bin/open', [
-                  '-R',
-                  widget.state.historyPath,
-                ]),
+                onPressed: () => revealInFinder(widget.state.historyPath),
               ),
             ],
           ),
@@ -555,8 +566,7 @@ class _LogViewState extends State<_LogView> {
               IconButton(
                 tooltip: 'Show in Finder',
                 icon: const Icon(Icons.folder_open, size: 18),
-                onPressed: () =>
-                    Process.runSync('/usr/bin/open', ['-R', widget.path]),
+                onPressed: () => revealInFinder(widget.path),
               ),
               TextButton(
                 onPressed: () {
@@ -701,16 +711,24 @@ class _PathField extends StatelessWidget {
     required this.label,
     required this.value,
     required this.onPicked,
+    this.help,
+    this.defaultName = '',
   });
 
   final String label;
   final String value;
+  final String? help;
+
+  /// The file name to keep when the field is empty and a folder is browsed to.
+  final String defaultName;
+
   final ValueChanged<String> onPicked;
 
   @override
   Widget build(BuildContext context) => _Field(
     label: label,
     value: value,
+    help: help,
     onSubmitted: onPicked,
     trailing: IconButton(
       tooltip: 'Browse',
@@ -718,10 +736,11 @@ class _PathField extends StatelessWidget {
       onPressed: () async {
         final folder = await showFolderPicker(
           context,
-          initial: p.dirname(value),
+          initial: value.isEmpty ? null : p.dirname(value),
         );
         if (folder == null || folder.isEmpty) return;
-        onPicked(p.join(folder, p.basename(value)));
+        final name = p.basename(value);
+        onPicked(p.join(folder, name.isEmpty ? defaultName : name));
       },
     ),
   );

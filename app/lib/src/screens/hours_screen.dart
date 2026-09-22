@@ -83,7 +83,10 @@ class _SearchRowState extends State<_SearchRow> {
     final counts = state.filterCounts;
     return Padding(
       padding: const EdgeInsets.fromLTRB(28, 8, 28, 4),
-      child: Row(
+      child: Wrap(
+        spacing: 12,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           SegmentedButton<BlockFilter>(
             showSelectedIcon: false,
@@ -98,8 +101,8 @@ class _SearchRowState extends State<_SearchRow> {
             selected: {state.filter},
             onSelectionChanged: (chosen) => state.setFilter(chosen.first),
           ),
-          const SizedBox(width: 12),
-          Expanded(
+          SizedBox(
+            width: 360,
             child: TextField(
               key: const Key('search'),
               controller: _controller,
@@ -122,14 +125,12 @@ class _SearchRowState extends State<_SearchRow> {
               onChanged: state.setQuery,
             ),
           ),
-          const SizedBox(width: 12),
           Text(
             '${state.blocks.length} blocks',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
-          const SizedBox(width: 12),
           TextButton(
             onPressed: state.blocks.isEmpty ? null : state.toggleAll,
             child: Text(all ? 'Select none' : 'Select all'),

@@ -1,4 +1,3 @@
-import 'dart:io';
 
 import 'package:aitracker_engine/aitracker_engine.dart';
 
@@ -20,16 +19,17 @@ aitracker - file the hours you spend with an AI assistant
 
 /// Runs one command. Returns the process exit code.
 ///
-/// Output goes to [out] and [err] so the tests can read it back.
+/// Output goes to [out] and [err], passed in rather than taken from the
+/// process, so the tests read back the same writes a terminal would show.
 Future<int> run(
   List<String> args, {
-  StringSink? out,
-  StringSink? err,
+  required StringSink out,
+  required StringSink err,
   String? configPath,
   String? overridesPath,
 }) async {
-  final stdoutSink = out ?? stdout;
-  final stderrSink = err ?? stderr;
+  final stdoutSink = out;
+  final stderrSink = err;
   final command = args.isEmpty ? 'help' : args.first;
   final config = AiTrackerConfig.load(configPath);
   final tracking = AiTracker(

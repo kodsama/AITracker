@@ -137,9 +137,14 @@ Building
 dart pub get
 dart test packages/engine packages/mcp packages/cli
 cd app && flutter test
+bash tool/coverage.sh                   # all four packages against the gate, then the API check
 bash tool/build-calendar-helper.sh      # the EventKit helper the calendar needs
 bash tool/run-app.sh                    # builds and launches, refusing a stale bundle
 ```
+
+The helper lands in `~/.local/bin`, or in the folder you pass the script. It is
+looked for there, in `/usr/local/bin` and beside the app; keep it anywhere else
+and the calendar section in Settings takes the path.
 
 `tool/run-app.sh` rather than `flutter build macos` on its own: renaming the
 product once left Xcode exiting 0 while copying nothing into the bundle, so the

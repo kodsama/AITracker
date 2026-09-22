@@ -44,8 +44,7 @@ class WorkingHoursSink {
   /// The quit dance exists because WorkingHours holds its own store in memory
   /// and writes it back. A database somewhere outside its container is nobody's
   /// live store, so it is written straight away.
-  bool get appOwnsStore =>
-      ownsStore(databasePath, WorkingHoursSinkConfig.defaultDatabasePath);
+  bool get appOwnsStore => app.owns(databasePath);
 
   /// Writes [blocks], or previews the write when [dryRun] is set.
   ///

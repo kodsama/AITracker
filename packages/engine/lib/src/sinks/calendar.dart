@@ -38,7 +38,11 @@ class CalendarSink {
   /// How each project is labelled in the events.
   final List<ProjectLink> links;
 
-  /// Helper to run; null looks in the usual places.
+  /// Helper to run.
+  ///
+  /// Null falls back to the configured path and then to the usual places.
+  /// Empty says there is none, which is how a test reaches the not-built
+  /// refusal without depending on what happens to be installed.
   final String? helperPath;
 
   /// Runs the helper.
@@ -46,9 +50,6 @@ class CalendarSink {
 
   /// Where the helper is looked for, in order.
   static List<String> helperCandidates() => [
-    if (Platform.environment['AITRACKER_CALENDAR_HELPER'] case final override?
-        when override.isNotEmpty)
-      override,
     p.join(
       AiTrackerConfig.homeDirectory(),
       '.local',
@@ -66,7 +67,9 @@ class CalendarSink {
 
   /// The helper, or null when it has not been built.
   String? get helper {
-    if (helperPath != null) return helperPath!.isEmpty ? null : helperPath;
+    final chosen = helperPath ?? config.helperPath;
+    if (chosen.isNotEmpty) return chosen;
+    if (helperPath != null) return null;
     for (final candidate in helperCandidates()) {
       if (File(candidate).existsSync()) return candidate;
     }

@@ -77,8 +77,7 @@ RenameResult renameProject(
         refusal: 'no WorkingHours database at $whPath',
       );
     }
-    if (ownsStore(whPath, WorkingHoursSinkConfig.defaultDatabasePath) &&
-        workingHoursApp.isRunning) {
+    if (workingHoursApp.owns(whPath) && workingHoursApp.isRunning) {
       if (!quitApps) {
         return RenameResult(
           config: config,

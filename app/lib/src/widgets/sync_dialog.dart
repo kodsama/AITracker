@@ -49,6 +49,15 @@ class _SyncDialogState extends State<SyncDialog> {
   };
 
   Future<void> _preview() async {
+    // An empty set means "all of them" to the engine, which is the opposite of
+    // what an empty tick list means here.
+    if (_targets.isEmpty) {
+      setState(() {
+        _reports = const [];
+        _busy = false;
+      });
+      return;
+    }
     setState(() => _busy = true);
     final reports = await widget.state.export(apply: false, only: _targets);
     if (!mounted) return;

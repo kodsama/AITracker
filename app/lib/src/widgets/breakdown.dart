@@ -86,33 +86,24 @@ class _BreakdownState extends State<Breakdown> {
           ),
         ),
         const SizedBox(height: 12),
-        if (rows.isEmpty)
-          Text(
-            'Nothing in this window.',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          )
-        else ...[
-          _Head(
-            by: _by,
-            sort: _sort,
-            descending: _descending,
-            onOrder: _order,
-            calendar: calendar,
+        _Head(
+          by: _by,
+          sort: _sort,
+          descending: _descending,
+          onOrder: _order,
+          calendar: calendar,
+        ),
+        const Divider(height: 12),
+        for (final row in rows)
+          _Row(
+            row: row,
+            share: longest.inSeconds == 0
+                ? 0
+                : row.time.inSeconds / longest.inSeconds,
+            colour: _by == Grouping.project
+                ? widget.state.colorFor(row.label, theme.brightness)
+                : null,
           ),
-          const Divider(height: 12),
-          for (final row in rows)
-            _Row(
-              row: row,
-              share: longest.inSeconds == 0
-                  ? 0
-                  : row.time.inSeconds / longest.inSeconds,
-              colour: _by == Grouping.project
-                  ? widget.state.colorFor(row.label, theme.brightness)
-                  : null,
-            ),
-        ],
       ],
     );
   }

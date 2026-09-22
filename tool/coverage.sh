@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 #
-# Runs every package's tests with coverage and holds each to the same floor.
+# Runs every package's tests with coverage, holds each to the same floor, and
+# checks that no exported name goes unmentioned by a test.
 #
 #   bash tool/coverage.sh [min-percent]
 set -euo pipefail
 
-MIN="${1:-90}"
+MIN="${1:-99}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 status=0
 
@@ -21,5 +22,10 @@ for pkg in engine mcp cli; do
 done
 
 cd "$ROOT/app"
-flutter test >/dev/null && echo "app      ✓ widget tests passed"
+flutter test --coverage >/dev/null
+printf '%-8s' app
+bash "$ROOT/tool/check_coverage.sh" coverage/lcov.info "$MIN" || status=1
+
+echo
+python3 "$ROOT/tool/api_coverage.py" "$MIN" || status=1
 exit "$status"

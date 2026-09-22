@@ -9,6 +9,39 @@ import 'package:test/test.dart';
 /// guard does not depend on what the machine happens to have open.
 const MacApp absent = MacApp(name: 'Absent', bundlePath: '/nonexistent');
 
+/// An app that is running, owns the store under [container], and either does
+/// or does not agree to quit.
+MacApp busy({
+  required bool quits,
+  required String container,
+  List<String>? asked,
+}) {
+  // Running until it is asked to stop, and then only if it agreed to.
+  var told = false;
+  return MacApp(
+    name: 'WorkingHours',
+    bundlePath: '/Applications/WorkingHours.app',
+    run: (executable, arguments) {
+      asked?.add(executable);
+      if (executable == '/usr/bin/osascript') told = true;
+      if (executable != '/bin/ps') return ProcessResult(0, 0, '', '');
+      return ProcessResult(
+        0,
+        0,
+        quits && told
+            ? ''
+            : '/Applications/WorkingHours.app/Contents/MacOS/WorkingHours',
+        '',
+      );
+    },
+    pause: (_) {},
+    // Short, because a test has no business waiting twenty seconds for an app
+    // that was never going to quit.
+    quitTimeout: const Duration(milliseconds: 20),
+    container: container,
+  );
+}
+
 TrackedBlock tracked({
   required DateTime start,
   required DateTime end,
@@ -118,7 +151,10 @@ void main() {
 
   group('WorkingHoursSink', () {
     test('only guards the store the app actually holds open', () {
-      const live = WorkingHoursSink(config: WorkingHoursSinkConfig(), app: absent);
+      const live = WorkingHoursSink(
+        config: WorkingHoursSinkConfig(),
+        app: MacApp.workingHours,
+      );
       expect(live.appOwnsStore, isTrue);
 
       final copy = WorkingHoursSink(
@@ -126,6 +162,60 @@ void main() {
         app: absent,
       );
       expect(copy.appOwnsStore, isFalse);
+    });
+
+    test('refuses while the app it belongs to is open', () {
+      final path = workingHoursDb(temp);
+      final sink = WorkingHoursSink(
+        config: WorkingHoursSinkConfig(databasePath: path),
+        app: busy(quits: false, container: temp.path),
+      );
+
+      final report = sink.sync([
+        tracked(start: DateTime(2026, 9, 1, 9), end: DateTime(2026, 9, 1, 10)),
+      ], dryRun: false);
+
+      expect(report.applied, isFalse);
+      expect(report.refusal, contains('WorkingHours is running'));
+      final db = sqlite3.open(path);
+      expect(db.select('select * from WorkUnits'), isEmpty);
+      db.close();
+    });
+
+    test('an app that will not quit stops the write', () {
+      final path = workingHoursDb(temp);
+      final sink = WorkingHoursSink(
+        config: WorkingHoursSinkConfig(databasePath: path),
+        app: busy(quits: false, container: temp.path),
+      );
+
+      final report = sink.sync([
+        tracked(start: DateTime(2026, 9, 1, 9), end: DateTime(2026, 9, 1, 10)),
+      ], dryRun: false, quitApp: true);
+
+      expect(report.applied, isFalse);
+      expect(report.refusal, contains('did not quit'));
+    });
+
+    test('closing the app for the write starts it again afterwards', () {
+      final path = workingHoursDb(temp);
+      final asked = <String>[];
+      final sink = WorkingHoursSink(
+        config: WorkingHoursSinkConfig(databasePath: path),
+        app: busy(quits: true, container: temp.path, asked: asked),
+      );
+
+      final report = sink.sync([
+        tracked(start: DateTime(2026, 9, 1, 9), end: DateTime(2026, 9, 1, 10)),
+      ], dryRun: false, quitApp: true);
+
+      expect(report.applied, isTrue);
+      expect(asked, contains('/usr/bin/osascript'));
+      // Closed for the write, and opened again after it.
+      expect(asked.last, '/usr/bin/open');
+      final db = sqlite3.open(path);
+      expect(db.select('select * from WorkUnits'), hasLength(1));
+      db.close();
     });
 
     test('refuses when the database is missing', () {

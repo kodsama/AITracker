@@ -34,8 +34,8 @@ class SummaryHeader extends StatelessWidget {
             builder: (context, constraints) {
               // The total never gives up room. The words beside it go first,
               // then the button shrinks to its icon.
-              final roomForWords = constraints.maxWidth > 540;
-              final roomForLabel = constraints.maxWidth > 420;
+              final roomForWords = constraints.maxWidth > 760;
+              final roomForLabel = constraints.maxWidth > 560;
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [

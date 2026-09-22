@@ -82,6 +82,45 @@ void main() {
   });
 
   group('paths', () {
+    test('home, the configuration and the archive follow the environment', () {
+      final was = AiTrackerConfig.environment;
+      addTearDown(() => AiTrackerConfig.environment = was);
+
+      AiTrackerConfig.environment = {'HOME': temp.path};
+      expect(AiTrackerConfig.homeDirectory(), temp.path);
+      expect(
+        AiTrackerConfig.defaultPath(),
+        p.join(temp.path, 'Library/Application Support/AITracker/config.json'),
+      );
+      expect(Log.defaultPath(), p.join(temp.path, 'Library/Logs/AI Tracker.log'));
+
+      // An archive opened with no path lands beside that configuration, which
+      // is what makes this safe to run at all.
+      final store = HistoryStore.open();
+      addTearDown(store.close);
+      expect(store.path, endsWith('AITracker/history.db'));
+      expect(store.path, startsWith(temp.path));
+
+      AiTrackerConfig.environment = {'AITRACKER_CONFIG': '/elsewhere/mine.json'};
+      expect(AiTrackerConfig.defaultPath(), '/elsewhere/mine.json');
+      expect(HistoryStore.defaultPath(), '/elsewhere/history.db');
+
+      // On a machine that names it differently, and on one that names it not
+      // at all.
+      AiTrackerConfig.environment = {'USERPROFILE': '/Users/someone'};
+      expect(AiTrackerConfig.homeDirectory(), '/Users/someone');
+      AiTrackerConfig.environment = {};
+      expect(AiTrackerConfig.homeDirectory(), Directory.current.path);
+    });
+
+    test('a folder it may not read holds no transcripts', () {
+      final closed = Directory('${temp.path}/closed')..createSync();
+      Process.runSync('/bin/chmod', ['000', closed.path]);
+      addTearDown(() => Process.runSync('/bin/chmod', ['755', closed.path]));
+
+      expect(AiTrackerConfig.holdsTranscripts(closed), isFalse);
+    });
+
     test('a relative sink path hangs off the home directory', () {
       expect(
         AiTrackerConfig.resolveHome('Documents/AI hours.csv'),

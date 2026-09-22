@@ -162,42 +162,47 @@ class ScanWorker {
         return;
       }
       final request = message as List;
-      final id = request[0] as int;
-      try {
-        final config = AiTrackerConfig.fromJson(
-          (request[1] as Map).cast<String, Object?>(),
-        );
-        final overrides = OverrideStore({
-          for (final entry in (request[2] as Map).cast<String, Object?>().entries)
-            entry.key: BlockOverride.fromJson(
-              (entry.value! as Map).cast<String, Object?>(),
-            ),
-        });
-        final start = DateTime.parse(request[3] as String);
-        final end = DateTime.parse(request[4] as String);
-
-        final tracking = AiTracker(
-          config: config,
-          overrides: overrides,
-          history: history,
-          historyPath: null,
-        );
-        if (request[5]! as bool) history.ingest(config.sources);
-        responses.send([
-          id,
-          ScanResult(
-            wallClock: tracking.blocks(since: start, until: end),
-            perProject: tracking.blocks(
-              since: start,
-              until: end,
-              mode: BlockMode.perProject,
-            ),
-          ),
-        ]);
-      } on Object catch (error) {
-        Log.error('scan failed', error);
-        responses.send([id, '$error']);
-      }
+      responses.send([request[0] as int, respond(request, history)]);
     });
+  }
+
+  /// Answers one request: a [ScanResult], or the reason it could not.
+  ///
+  /// Pulled out of the isolate so the failure path is a function a test can
+  /// call rather than a race it has to arrange.
+  static Object respond(List<Object?> request, HistoryStore history) {
+    try {
+      final config = AiTrackerConfig.fromJson(
+        (request[1]! as Map).cast<String, Object?>(),
+      );
+      final overrides = OverrideStore({
+        for (final entry in (request[2]! as Map).cast<String, Object?>().entries)
+          entry.key: BlockOverride.fromJson(
+            (entry.value! as Map).cast<String, Object?>(),
+          ),
+      });
+      final start = DateTime.parse(request[3]! as String);
+      final end = DateTime.parse(request[4]! as String);
+
+      final tracking = AiTracker(
+        config: config,
+        overrides: overrides,
+        history: history,
+        historyPath: null,
+      );
+      if (request[5]! as bool) history.ingest(config.sources);
+      return ScanResult(
+        wallClock: tracking.blocks(since: start, until: end, ingest: false),
+        perProject: tracking.blocks(
+          since: start,
+          until: end,
+          mode: BlockMode.perProject,
+          ingest: false,
+        ),
+      );
+    } on Object catch (error) {
+      Log.error('scan failed', error);
+      return '$error';
+    }
   }
 }

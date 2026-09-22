@@ -16,7 +16,10 @@ class PeriodPicker extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final custom = state.periodKind == PeriodKind.custom;
-    return Row(
+    return Wrap(
+      spacing: 4,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         IconButton(
           tooltip: 'Previous',

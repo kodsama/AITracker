@@ -114,6 +114,23 @@ void main() {
     expect(reports.last.applied, isTrue);
   });
 
+  test('the automatic targets are the ones switched on and set to file', () {
+    expect(config.automaticSinks, isEmpty);
+    expect(
+      config
+          .copyWith(
+            workingHours: const WorkingHoursSinkConfig(automatic: true),
+            calendar: const CalendarSinkConfig(
+              enabled: true,
+              automatic: true,
+            ),
+            tabular: const TabularSinkConfig(automatic: true),
+          )
+          .automaticSinks,
+      {'workinghours', 'calendar'},
+    );
+  });
+
   group('project names', () {
     test('a company and a project make the ledger name', () {
       expect(
@@ -160,6 +177,8 @@ void main() {
       expect(copy.calendarLabel, 'idbuddy');
       expect(copy.color, '#FF34D399');
       expect(copy.copyWith(color: '#FF000000').color, '#FF000000');
+      expect(copy.copyWith(name: 'Other').name, 'Other');
+      expect(copy.copyWith().workingHoursTags, ['Programming']);
     });
 
     test('rides along in the configuration file', () {

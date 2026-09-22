@@ -9,16 +9,15 @@ import 'mcp_server.dart';
 /// This is the transport an MCP client uses when it spawns the server as a
 /// subprocess. Completes when [input] closes.
 ///
-/// [input] and [output] default to the process's [stdin]/[stdout]; they are
-/// injectable so the loop can be driven with in-memory streams under test.
+/// [input] and [output] are passed in rather than taken from the process, so
+/// the loop is the same one a test drives with in-memory streams.
 Future<void> serveStdio(
   McpServer server, {
-  Stream<List<int>>? input,
-  IOSink? output,
+  required Stream<List<int>> input,
+  required IOSink output,
 }) async {
-  final source = input ?? stdin;
-  final sink = output ?? stdout;
-  final lines = source.transform(utf8.decoder).transform(const LineSplitter());
+  final sink = output;
+  final lines = input.transform(utf8.decoder).transform(const LineSplitter());
   await for (final line in lines) {
     if (line.trim().isEmpty) continue;
     final response = await processLine(server, line);

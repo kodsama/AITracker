@@ -117,6 +117,114 @@ void main() {
   });
 
   group('colours', () {
+    test('a colour is only written where it differs, and only where asked', () {
+      final sink = WorkingHoursSink(
+        config: WorkingHoursSinkConfig(databasePath: workingHours),
+        links: const [
+          ProjectLink(name: 'RiACT - Code', color: '#FF69BD0D'),
+          ProjectLink(name: 'Sigma - Axis Camera', color: '#FF112233'),
+        ],
+        app: const MacApp(name: 'Absent', bundlePath: '/nonexistent'),
+      );
+
+      // The first already has that colour, the second was not asked for.
+      final report = sink.applyColors(
+        dryRun: false,
+        only: {'RiACT - Code'},
+      );
+
+      expect(report.notes, isEmpty);
+      final db = sqlite3.open(workingHours);
+      expect(
+        db.select("select Color from Projects where Name = 'Sigma - Axis Camera'")
+            .single['Color'],
+        '#FF410006',
+      );
+      db.close();
+    });
+
+    test('with nothing mapped there is nothing to colour', () {
+      final sink = WorkingHoursSink(
+        config: WorkingHoursSinkConfig(databasePath: workingHours),
+        app: const MacApp(name: 'Absent', bundlePath: '/nonexistent'),
+      );
+
+      expect(sink.applyColors().applied, isFalse);
+      expect(sink.applyColors(dryRun: false).applied, isTrue);
+    });
+
+    test('a store that is not there cannot be coloured', () {
+      const sink = WorkingHoursSink(
+        config: WorkingHoursSinkConfig(databasePath: '/nonexistent/wh.db'),
+        links: [ProjectLink(name: 'x', color: '#FF000000')],
+        app: MacApp(name: 'Absent', bundlePath: '/nonexistent'),
+      );
+
+      expect(sink.applyColors().refusal, contains('no WorkingHours database'));
+    });
+
+    test('colouring waits for the app to close, and starts it again', () {
+      var told = false;
+      final asked = <String>[];
+      final open = MacApp(
+        name: 'WorkingHours',
+        bundlePath: '/Applications/WorkingHours.app',
+        container: temp.path,
+        quitTimeout: const Duration(milliseconds: 20),
+        pause: (_) {},
+        run: (executable, arguments) {
+          asked.add(executable);
+          if (executable == '/usr/bin/osascript') told = true;
+          if (executable != '/bin/ps') return ProcessResult(0, 0, '', '');
+          return ProcessResult(
+            0,
+            0,
+            told
+                ? ''
+                : '/Applications/WorkingHours.app/Contents/MacOS/WorkingHours',
+            '',
+          );
+        },
+      );
+      final sink = WorkingHoursSink(
+        config: WorkingHoursSinkConfig(databasePath: workingHours),
+        links: const [ProjectLink(name: 'RiACT - Code', color: '#FF6C4AB6')],
+        app: open,
+      );
+
+      expect(sink.applyColors(dryRun: false).refusal, contains('is running'));
+
+      // One that will not close stops the write.
+      final stubborn = WorkingHoursSink(
+        config: WorkingHoursSinkConfig(databasePath: workingHours),
+        links: const [ProjectLink(name: 'RiACT - Code', color: '#FF6C4AB6')],
+        app: MacApp(
+          name: 'WorkingHours',
+          bundlePath: '/Applications/WorkingHours.app',
+          container: temp.path,
+          quitTimeout: const Duration(milliseconds: 20),
+          pause: (_) {},
+          run: (executable, arguments) => ProcessResult(
+            0,
+            0,
+            executable == '/bin/ps'
+                ? '/Applications/WorkingHours.app/Contents/MacOS/WorkingHours'
+                : '',
+            '',
+          ),
+        ),
+      );
+      expect(
+        stubborn.applyColors(dryRun: false, quitApp: true).refusal,
+        contains('did not quit'),
+      );
+
+      final report = sink.applyColors(dryRun: false, quitApp: true);
+
+      expect(report.applied, isTrue);
+      expect(asked.last, '/usr/bin/open');
+    });
+
     test('are pushed into the ledger, and previewed first', () {
       final sink = WorkingHoursSink(
         config: WorkingHoursSinkConfig(databasePath: workingHours),

@@ -24,9 +24,7 @@ enum LogLevel {
 /// One file for the app, the CLI and the MCP server, because the interesting
 /// question after the fact is what touched the timesheet, not which window was
 /// open at the time.
-class Log {
-  const Log._();
-
+abstract final class Log {
   /// Lines longer than this are cut; a stack trace belongs on its own lines.
   static const int maxLine = 2000;
 
@@ -40,10 +38,12 @@ class Log {
 
   /// Where the log is kept: `~/Library/Logs/AI Tracker.log` on macOS, beside
   /// the configuration elsewhere.
-  static String path() {
-    if (_path != null) return _path!;
+  static String path() => _path ?? defaultPath();
+
+  /// Where the log goes when nothing has said otherwise.
+  static String defaultPath() {
     final home = AiTrackerConfig.homeDirectory();
-    return _path = Platform.isMacOS
+    return Platform.isMacOS
         ? p.join(home, 'Library', 'Logs', 'AI Tracker.log')
         : p.join(p.dirname(AiTrackerConfig.defaultPath()), 'aitracker.log');
   }

@@ -8,8 +8,8 @@ class MainFlutterWindow: NSWindow {
     self.contentViewController = flutterViewController
     self.setFrame(windowFrame, display: true)
     self.center()
-    // The hours table needs room for its columns.
-    self.minSize = NSSize(width: 980, height: 620)
+    // Narrow enough to sit beside something else; the hours reflow to suit.
+    self.minSize = NSSize(width: 680, height: 560)
     self.title = "AI Tracker"
 
     RegisterGeneratedPlugins(registry: flutterViewController)

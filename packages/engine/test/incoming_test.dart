@@ -200,6 +200,29 @@ void main() {
     expect(override.start, DateTime(2026, 9, 1, 9, 30));
   });
 
+  test('a difference serialises for a client', () {
+    writeUnit(
+      project: 'Paperweight AI - paperweight',
+      description: 'pairing',
+      start: DateTime(2026, 9, 1, 9, 30),
+      end: DateTime(2026, 9, 1, 10),
+    );
+
+    final json = readBack(config(), [block()]).single.toJson();
+
+    expect(json['project'], 'Paperweight AI - paperweight');
+    expect(json['description'], 'pairing');
+    expect(json['start'], '2026-09-01T09:30:00.000');
+    expect((json['changes']! as List), hasLength(3));
+    expect(json['key'], block().key);
+  });
+
+  test('a store that is not a database reads back as nothing', () {
+    File(path).writeAsStringSync('not a database at all');
+
+    expect(readBack(config(), [block()]), isEmpty);
+  });
+
   test('nothing to read is not an error', () {
     expect(readBack(config(), []), isEmpty);
     expect(readBack(config(), [block()]), isEmpty);
