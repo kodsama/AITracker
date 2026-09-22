@@ -35,6 +35,7 @@ Future<int> run(
   final tracking = AiTracker(
     config: config,
     overrides: OverrideStore.load(overridesPath),
+    historyPath: HistoryStore.besideConfig(configPath),
   );
   final blocks = tracking.blocks(
     since: _since(args),

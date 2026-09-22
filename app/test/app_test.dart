@@ -148,6 +148,22 @@ void main() {
     );
   });
 
+  testWidgets('the archive keeps the hours after the transcripts go', (
+    tester,
+  ) async {
+    final state = await pump(tester);
+    expect(state.blocks, hasLength(2));
+
+    // What an assistant prunes after a month, gone in one step.
+    Directory('${temp.path}/projects').deleteSync(recursive: true);
+    await state.refresh();
+    await tester.pumpAndSettle();
+
+    expect(state.blocks, hasLength(2));
+    expect(state.archive().events, 4);
+    expect(state.archive().files, 2);
+  });
+
   testWidgets('settings switch a sink off and write it to disk', (
     tester,
   ) async {

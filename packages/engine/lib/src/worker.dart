@@ -1,9 +1,8 @@
 import 'dart:async';
 import 'dart:isolate';
 
-import 'activity.dart';
-import 'cache.dart';
 import 'config.dart';
+import 'history.dart';
 import 'log.dart';
 import 'overrides.dart';
 import 'periods.dart';
@@ -35,30 +34,47 @@ class ScanResult {
 class ScanWorker {
   ScanWorker._(this._commands, this._responses, this._alive);
 
+  /// Sent by the isolate once it has closed the archive.
+  static const String _stopped = 'stopped';
+
   final SendPort _commands;
   final ReceivePort _responses;
   final Completer<void> _alive;
+  final Completer<void> _closed = Completer<void>();
   final Map<int, Completer<ScanResult>> _waiting = {};
   int _next = 0;
-  bool _stopped = false;
+  bool _stopping = false;
 
   /// Starts the worker.
   ///
   /// An isolate gets its own copy of every static, the log included, so where
   /// it writes has to be handed over rather than assumed.
-  static Future<ScanWorker> start({bool logging = true, String? logFile}) async {
+  static Future<ScanWorker> start({
+    bool logging = true,
+    String? logFile,
+    String? historyPath,
+  }) async {
     final responses = ReceivePort();
     final ready = Completer<SendPort>();
     final alive = Completer<void>();
     await Isolate.spawn(
       _run,
-      [responses.sendPort, logging, logFile ?? Log.path()],
+      [
+        responses.sendPort,
+        logging,
+        logFile ?? Log.path(),
+        historyPath ?? HistoryStore.defaultPath(),
+      ],
       debugName: 'aitracker-scan',
     );
     late final ScanWorker worker;
     responses.listen((message) {
       if (message is SendPort) {
         ready.complete(message);
+        return;
+      }
+      if (message == _stopped) {
+        worker._closed.complete();
         return;
       }
       if (message is! List || message.length != 2) return;
@@ -74,7 +90,7 @@ class ScanWorker {
     required OverrideStore overrides,
     required Period window,
   }) {
-    if (_stopped) return Future.value(ScanResult.empty);
+    if (_stopping) return Future.value(ScanResult.empty);
     final id = _next++;
     final waiting = Completer<ScanResult>();
     _waiting[id] = waiting;
@@ -91,11 +107,19 @@ class ScanWorker {
     return waiting.future;
   }
 
-  /// Stops the worker and drops its cache.
+  /// Stops the worker and waits for it to let go of the archive.
+  ///
+  /// Waiting matters: the archive is a file with a write-ahead log beside it,
+  /// and a caller that deletes or copies it straight after stopping would
+  /// otherwise catch it mid-close.
   Future<void> stop() async {
-    if (_stopped) return;
-    _stopped = true;
+    if (_stopping) return _closed.future;
+    _stopping = true;
     _commands.send(null);
+    await _closed.future.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => Log.warn('the scan worker did not confirm it stopped'),
+    );
     _responses.close();
     for (final waiting in _waiting.values) {
       if (!waiting.isCompleted) waiting.complete(ScanResult.empty);
@@ -124,10 +148,12 @@ class ScanWorker {
     Log.useFile(boot[2]! as String);
     final commands = ReceivePort();
     responses.send(commands.sendPort);
-    final cache = TranscriptCache();
+    final history = HistoryStore.open(boot[3]! as String);
 
     commands.listen((message) {
       if (message == null) {
+        history.close();
+        responses.send(_stopped);
         commands.close();
         return;
       }
@@ -146,31 +172,20 @@ class ScanWorker {
         final start = DateTime.parse(request[3] as String);
         final end = DateTime.parse(request[4] as String);
 
-        final tracking = AiTracker(config: config, overrides: overrides);
-        final events = TranscriptScanner(
-          config.sources,
-          cache: cache,
-        ).scan(since: start);
-        List<TrackedBlock> resolve(List<WorkBlock> blocks) => [
-          for (final block in blocks)
-            if (block.start.isBefore(end)) tracking.resolve(block),
-        ];
+        final tracking = AiTracker(
+          config: config,
+          overrides: overrides,
+          history: history,
+        );
+        history.ingest(config.sources);
         responses.send([
           id,
           ScanResult(
-            wallClock: resolve(
-              buildBlocks(
-                events,
-                idleGap: config.idleGap,
-                minBlock: config.minBlock,
-              ),
-            ),
-            perProject: resolve(
-              buildProjectBlocks(
-                events,
-                idleGap: config.idleGap,
-                minBlock: config.minBlock,
-              ),
+            wallClock: tracking.blocks(since: start, until: end),
+            perProject: tracking.blocks(
+              since: start,
+              until: end,
+              mode: BlockMode.perProject,
             ),
           ),
         ]);

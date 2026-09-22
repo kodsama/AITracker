@@ -2,6 +2,7 @@ import 'package:path/path.dart' as p;
 
 import 'activity.dart';
 import 'config.dart';
+import 'history.dart';
 import 'overrides.dart';
 
 /// A work block with the project it bills to and the hand edits applied.
@@ -49,11 +50,19 @@ class TrackedBlock {
   bool get billable => project != null && !excluded;
 }
 
-/// Reads transcripts and resolves them into billable blocks.
+/// Reads the archive and resolves it into billable blocks.
 class AiTracker {
   /// Creates a facade over [config] and the hand edits in [overrides].
-  AiTracker({required this.config, OverrideStore? overrides})
-    : overrides = overrides ?? OverrideStore();
+  ///
+  /// [history] is the archive to read; without one it is opened and closed
+  /// around each call, which suits a command that runs once. Anything asking
+  /// repeatedly should hold one open and pass it.
+  AiTracker({
+    required this.config,
+    OverrideStore? overrides,
+    this.history,
+    this.historyPath,
+  }) : overrides = overrides ?? OverrideStore();
 
   /// Sources, thresholds, rules and sink settings.
   final AiTrackerConfig config;
@@ -61,20 +70,38 @@ class AiTracker {
   /// Hand edits applied on top of the measurement.
   final OverrideStore overrides;
 
+  /// An archive already open, if the caller keeps one.
+  final HistoryStore? history;
+
+  /// Where to open the archive when none was passed.
+  final String? historyPath;
+
   /// Blocks between [since] and [until], oldest first.
-  List<TrackedBlock> blocks({DateTime? since, DateTime? until}) {
-    final events = TranscriptScanner(config.sources).scan(since: since);
-    final measured = buildBlocks(
-      events,
-      idleGap: config.idleGap,
-      minBlock: config.minBlock,
-    );
-    final result = <TrackedBlock>[];
-    for (final block in measured) {
-      if (until != null && !block.start.isBefore(until)) continue;
-      result.add(resolve(block));
+  ///
+  /// The transcripts are read into the archive first, so a window that reaches
+  /// past what the assistant still keeps on disk is answered from what was
+  /// archived when it was there.
+  List<TrackedBlock> blocks({
+    DateTime? since,
+    DateTime? until,
+    BlockMode mode = BlockMode.wallClock,
+  }) {
+    final store = history ?? HistoryStore.open(historyPath);
+    try {
+      store.ingest(config.sources);
+      return [
+        for (final block in store.blocks(
+          from: since ?? DateTime(2000),
+          to: until ?? DateTime.now().add(const Duration(days: 1)),
+          idleGap: config.idleGap,
+          minBlock: config.minBlock,
+          mode: mode,
+        ))
+          resolve(block),
+      ];
+    } finally {
+      if (history == null) store.close();
     }
-    return result;
   }
 
   /// Applies rules and hand edits to one measured [block].

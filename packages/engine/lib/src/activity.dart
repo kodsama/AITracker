@@ -1,10 +1,3 @@
-import 'dart:io';
-
-import 'package:path/path.dart' as p;
-
-import 'cache.dart';
-import 'log.dart';
-
 /// What one exchange cost, as the assistant reported it.
 class TokenUsage {
   /// Creates a count.
@@ -144,197 +137,89 @@ enum TranscriptFormat {
   unknown,
 }
 
-/// Reads AI assistant transcripts and yields their activity events.
-///
-/// Every supported assistant writes JSONL, one line per exchange, carrying a
-/// time and the directory it was working in. Lines are scanned as text rather
-/// than decoded as JSON: a transcript holds whole tool payloads, and only a few
-/// fields are wanted.
-class TranscriptScanner {
-  /// Creates a scanner over [sources], each a directory of transcripts.
-  ///
-  /// With a [cache] the scanner only reads the files that changed since the
-  /// last scan, which is what makes rescanning cheap enough to do on every
-  /// change of window.
-  const TranscriptScanner(this.sources, {this.cache});
-
-  /// Directories to walk, recursively.
-  final List<String> sources;
-
-  /// What was parsed last time, if it is being kept.
-  final TranscriptCache? cache;
-
-  /// Every event at or after [since], in no particular order.
-  List<ActivityEvent> scan({DateTime? since}) {
-    final started = DateTime.now();
-    var read = 0;
-    var reused = 0;
-    final seen = <String>{};
-    final events = <ActivityEvent>[];
-    for (final source in sources) {
-      final dir = Directory(source);
-      if (!dir.existsSync()) {
-        Log.warn('transcript folder is not there: $source');
-        continue;
-      }
-      for (final file in dir.listSync(recursive: true).whereType<File>()) {
-        if (p.extension(file.path) != '.jsonl') continue;
-        seen.add(file.path);
-        final store = cache;
-        if (store == null) {
-          if (since != null && file.lastModifiedSync().isBefore(since)) {
-            continue;
-          }
-          read++;
-          events.addAll(readTranscript(file, since: since));
-          continue;
-        }
-        // A transcript last written before the window cannot hold anything in
-        // it, so it is neither read nor cached: widening the window later is
-        // what pulls it in.
-        if (since != null &&
-            !store.holds(file.path) &&
-            file.lastModifiedSync().isBefore(since)) {
-          continue;
-        }
-        // Cached events are the whole file, so the window is applied here
-        // rather than while parsing.
-        var parsed = false;
-        final held = store.events(file.path, () {
-          parsed = true;
-          return readTranscript(file);
-        });
-        if (held == null) continue;
-        if (parsed) {
-          read++;
-        } else {
-          reused++;
-        }
-        for (final event in held) {
-          if (since != null && event.time.isBefore(since)) continue;
-          events.add(event);
-        }
-      }
-    }
-    cache?.keepOnly(seen);
-    Log.info(
-      'scanned ${read + reused} transcripts in ${sources.length} folders: '
-      '${events.length} events in '
-      '${DateTime.now().difference(started).inMilliseconds}ms'
-      '${reused == 0 ? '' : ', $reused from cache'}',
-    );
-    return events;
+/// The layout of [line], for picking the fields out of the rest of the file.
+TranscriptFormat formatOf(String line) {
+  if (line.contains('"timestamp":"')) return TranscriptFormat.claudeCode;
+  if (line.contains('"workspace":"') && line.contains('"timestamp":')) {
+    return TranscriptFormat.geminiCli;
   }
-
-  /// The layout of [line], for picking the fields out of the rest of the file.
-  static TranscriptFormat formatOf(String line) {
-    if (line.contains('"timestamp":"')) return TranscriptFormat.claudeCode;
-    if (line.contains('"workspace":"') && line.contains('"timestamp":')) {
-      return TranscriptFormat.geminiCli;
-    }
-    return TranscriptFormat.unknown;
-  }
-
-  /// Events from a single transcript [file].
-  ///
-  /// The session's directory is the first one the file mentions; a transcript
-  /// with none falls back to the name of the project folder holding it.
-  List<ActivityEvent> readTranscript(File file, {DateTime? since}) {
-    final fallbackSession = p.basenameWithoutExtension(file.path);
-    String? directory;
-    final events = <ActivityEvent>[];
-    final List<String> lines;
-    try {
-      lines = file.readAsLinesSync();
-    } on FileSystemException {
-      return const [];
-    }
-    var format = TranscriptFormat.unknown;
-    for (final line in lines) {
-      if (format == TranscriptFormat.unknown) format = formatOf(line);
-      final DateTime? time;
-      if (format == TranscriptFormat.geminiCli) {
-        directory ??= _extract(line, '"workspace":"');
-        final millis = _number(line, '"timestamp":');
-        time = millis == 0
-            ? null
-            : DateTime.fromMillisecondsSinceEpoch(millis).toLocal();
-      } else {
-        directory ??= _extract(line, '"cwd":"');
-        final stamp = _extract(line, '"timestamp":"');
-        time = stamp == null ? null : DateTime.tryParse(stamp)?.toLocal();
-      }
-      if (time == null) continue;
-      if (since != null && time.isBefore(since)) continue;
-      events.add(
-        ActivityEvent(
-          time: time,
-          directory: directory ?? _projectFolder(file),
-          sessionId:
-              _extract(line, '"conversationId":"') ?? fallbackSession,
-          tokens: _usage(line),
-        ),
-      );
-    }
-    if (directory == null) return events;
-    // The directory is only known once a line mentions it, so stamp the ones
-    // read before that with the value the session turned out to have.
-    return [
-      for (final event in events)
-        ActivityEvent(
-          time: event.time,
-          directory: directory,
-          sessionId: event.sessionId,
-          tokens: event.tokens,
-        ),
-    ];
-  }
-
-  static String _projectFolder(File file) {
-    final parts = p.split(file.parent.path);
-    final index = parts.lastIndexOf('projects');
-    if (index >= 0 && index + 1 < parts.length) return parts[index + 1];
-    return file.parent.path;
-  }
-
-  /// What the line says the exchange cost. Lines that carry no usage block,
-  /// which is most of them, cost nothing.
-  static TokenUsage _usage(String line) {
-    if (!line.contains('"usage"')) return TokenUsage.zero;
-    return TokenUsage(
-      input: _number(line, '"input_tokens":'),
-      output: _number(line, '"output_tokens":'),
-      cacheWrite: _number(line, '"cache_creation_input_tokens":'),
-      cacheRead: _number(line, '"cache_read_input_tokens":'),
-    );
-  }
-
-  static int _number(String line, String key) {
-    final start = line.indexOf(key);
-    if (start < 0) return 0;
-    var at = start + key.length;
-    while (at < line.length && line[at] == ' ') {
-      at++;
-    }
-    final digits = StringBuffer();
-    while (at < line.length && _isDigit(line.codeUnitAt(at))) {
-      digits.writeCharCode(line.codeUnitAt(at));
-      at++;
-    }
-    return int.tryParse(digits.toString()) ?? 0;
-  }
-
-  static bool _isDigit(int code) => code >= 0x30 && code <= 0x39;
-
-  static String? _extract(String line, String key) {
-    final start = line.indexOf(key);
-    if (start < 0) return null;
-    final from = start + key.length;
-    final end = line.indexOf('"', from);
-    if (end < 0) return null;
-    return line.substring(from, end);
-  }
+  return TranscriptFormat.unknown;
 }
+
+/// The working directory [line] names, if it names one.
+String? directoryIn(String line, TranscriptFormat format) =>
+    format == TranscriptFormat.geminiCli
+    ? extractString(line, '"workspace":"')
+    : extractString(line, '"cwd":"');
+
+/// One transcript line as an event, or null when it carries no time.
+///
+/// Lines are read as text rather than decoded as JSON: a transcript holds whole
+/// tool payloads, and only a few fields are wanted.
+ActivityEvent? parseTranscriptLine(
+  String line,
+  TranscriptFormat format, {
+  required String directory,
+  required String session,
+}) {
+  final DateTime? time;
+  if (format == TranscriptFormat.geminiCli) {
+    final millis = extractNumber(line, '"timestamp":');
+    time = millis == 0
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(millis).toLocal();
+  } else {
+    final stamp = extractString(line, '"timestamp":"');
+    time = stamp == null ? null : DateTime.tryParse(stamp)?.toLocal();
+  }
+  if (time == null) return null;
+  return ActivityEvent(
+    time: time,
+    directory: directory,
+    sessionId: extractString(line, '"conversationId":"') ?? session,
+    tokens: usageIn(line),
+  );
+}
+
+/// What the line says the exchange cost. Lines that carry no usage block, which
+/// is most of them, cost nothing.
+TokenUsage usageIn(String line) {
+  if (!line.contains('"usage"')) return TokenUsage.zero;
+  return TokenUsage(
+    input: extractNumber(line, '"input_tokens":'),
+    output: extractNumber(line, '"output_tokens":'),
+    cacheWrite: extractNumber(line, '"cache_creation_input_tokens":'),
+    cacheRead: extractNumber(line, '"cache_read_input_tokens":'),
+  );
+}
+
+/// The string value following [key], or null when the line has no such key.
+String? extractString(String line, String key) {
+  final start = line.indexOf(key);
+  if (start < 0) return null;
+  final from = start + key.length;
+  final end = line.indexOf('"', from);
+  if (end < 0) return null;
+  return line.substring(from, end);
+}
+
+/// The number following [key], or zero when the line has no such key.
+int extractNumber(String line, String key) {
+  final start = line.indexOf(key);
+  if (start < 0) return 0;
+  var at = start + key.length;
+  while (at < line.length && line[at] == ' ') {
+    at++;
+  }
+  final digits = StringBuffer();
+  while (at < line.length && _isDigit(line.codeUnitAt(at))) {
+    digits.writeCharCode(line.codeUnitAt(at));
+    at++;
+  }
+  return int.tryParse(digits.toString()) ?? 0;
+}
+
+bool _isDigit(int code) => code >= 0x30 && code <= 0x39;
 
 /// Turns [events] into work blocks.
 ///

@@ -104,123 +104,71 @@ void main() {
     });
   });
 
-  group('TranscriptScanner', () {
-    late Directory temp;
-
-    setUp(() => temp = Directory.systemTemp.createTempSync('aitracker'));
-    tearDown(() => temp.deleteSync(recursive: true));
-
-    File transcript(String project, String name, String contents) {
-      final dir = Directory('${temp.path}/projects/$project')
-        ..createSync(recursive: true);
-      return File('${dir.path}/$name')..writeAsStringSync(contents);
-    }
-
-    test('reads timestamps and the session directory', () {
-      transcript(
-        '-Users-me-code',
-        'session.jsonl',
-        '{"type":"system","timestamp":"2026-09-01T09:00:00.000Z","cwd":"/Users/me/code"}\n'
-        '{"type":"user","timestamp":"2026-09-01T09:05:00.000Z","cwd":"/Users/me/code"}\n',
-      );
-
-      final events = TranscriptScanner([
-        '${temp.path}/projects',
-      ]).scan();
-
-      expect(events, hasLength(2));
-      expect(events.first.directory, '/Users/me/code');
-      expect(events.first.sessionId, 'session');
-    });
-
-    test('stamps lines read before the first cwd with the one that follows', () {
-      transcript(
-        '-Users-me-code',
-        'session.jsonl',
-        '{"type":"mode","timestamp":"2026-09-01T09:00:00.000Z"}\n'
-        '{"type":"system","timestamp":"2026-09-01T09:05:00.000Z","cwd":"/Users/me/code"}\n',
-      );
-
-      final events = TranscriptScanner(['${temp.path}/projects']).scan();
-
-      expect(events.map((e) => e.directory), everyElement('/Users/me/code'));
-    });
-
-    test('falls back to the project folder when no line carries a cwd', () {
-      transcript(
-        '-Users-me-nowhere',
-        'session.jsonl',
-        '{"timestamp":"2026-09-01T09:00:00.000Z"}\n',
-      );
-
-      final events = TranscriptScanner(['${temp.path}/projects']).scan();
-
-      expect(events.single.directory, '-Users-me-nowhere');
-    });
-
-    test('skips files older than the cutoff and ignores other extensions', () {
-      transcript('p', 'notes.txt', 'ignored');
-      final old = transcript(
-        'p',
-        'old.jsonl',
-        '{"timestamp":"2020-01-01T09:00:00.000Z","cwd":"/old"}\n',
-      );
-      old.setLastModifiedSync(DateTime(2020, 1, 1));
-      transcript(
-        'p',
-        'new.jsonl',
-        '{"timestamp":"2026-09-01T09:00:00.000Z","cwd":"/new"}\n',
-      );
-
-      final events = TranscriptScanner([
-        '${temp.path}/projects',
-      ]).scan(since: DateTime(2026));
-
-      expect(events.single.directory, '/new');
-    });
-
-    test('ignores a source directory that does not exist', () {
-      expect(TranscriptScanner(['${temp.path}/missing']).scan(), isEmpty);
-    });
-  });
-
-  group('other assistants', () {
-    late Directory temp;
-
-    setUp(() => temp = Directory.systemTemp.createTempSync('aitracker_gemini'));
-    tearDown(() => temp.deleteSync(recursive: true));
-
-    test('reads the Gemini and Antigravity CLI history', () {
-      final dir = Directory('${temp.path}/antigravity-cli')
-        ..createSync(recursive: true);
-      final start = DateTime(2026, 9, 1, 9).millisecondsSinceEpoch;
-      File('${dir.path}/history.jsonl').writeAsStringSync(
-        '{"display":"/career-ops","timestamp":$start,'
-        '"workspace":"/Users/me/Developer/Career-Ops"}\n'
-        '{"display":"do the thing","timestamp":${start + 300000},'
-        '"workspace":"/Users/me/Developer/Career-Ops",'
-        '"conversationId":"abc"}\n',
-      );
-
-      final events = TranscriptScanner([temp.path]).scan();
-
-      expect(events, hasLength(2));
-      expect(events.first.time, DateTime(2026, 9, 1, 9));
-      expect(events.first.directory, '/Users/me/Developer/Career-Ops');
-      expect(events.last.sessionId, 'abc');
-      expect(events.last.tokens.isEmpty, isTrue);
-    });
-
+  group('reading a line', () {
     test('tells the two layouts apart', () {
       expect(
-        TranscriptScanner.formatOf('{"timestamp":"2026-09-01T09:00:00Z"}'),
+        formatOf('{"timestamp":"2026-09-01T09:00:00Z"}'),
         TranscriptFormat.claudeCode,
       );
       expect(
-        TranscriptScanner.formatOf('{"timestamp":1784620258659,"workspace":"/x"}'),
+        formatOf('{"timestamp":1784620258659,"workspace":"/x"}'),
         TranscriptFormat.geminiCli,
       );
-      expect(TranscriptScanner.formatOf('{}'), TranscriptFormat.unknown);
+      expect(formatOf('{}'), TranscriptFormat.unknown);
+    });
+
+    test('reads the time, the directory and the session', () {
+      final event = parseTranscriptLine(
+        '{"timestamp":"2026-09-01T09:00:00.000Z","cwd":"/repo",'
+        '"conversationId":"abc"}',
+        TranscriptFormat.claudeCode,
+        directory: '/repo',
+        session: 'file',
+      )!;
+
+      expect(event.time, DateTime.utc(2026, 9, 1, 9).toLocal());
+      expect(event.directory, '/repo');
+      expect(event.sessionId, 'abc');
+    });
+
+    test('reads the Gemini and Antigravity CLI layout', () {
+      final at = DateTime(2026, 9, 1, 9).millisecondsSinceEpoch;
+      final line = '{"display":"hi","timestamp":$at,"workspace":"/work"}';
+
+      expect(directoryIn(line, TranscriptFormat.geminiCli), '/work');
+      expect(
+        parseTranscriptLine(
+          line,
+          TranscriptFormat.geminiCli,
+          directory: '/work',
+          session: 'file',
+        )!.time,
+        DateTime(2026, 9, 1, 9),
+      );
+    });
+
+    test('a line with no time is not an event', () {
+      expect(
+        parseTranscriptLine(
+          '{"type":"mode"}',
+          TranscriptFormat.claudeCode,
+          directory: '/repo',
+          session: 'file',
+        ),
+        isNull,
+      );
+    });
+
+    test('costs are read off the usage block, and only from it', () {
+      expect(
+        usageIn(
+          '{"message":{"usage":{"input_tokens":2,'
+          '"cache_creation_input_tokens":18664,'
+          '"cache_read_input_tokens":25336,"output_tokens":761}}}',
+        ).total,
+        44763,
+      );
+      expect(usageIn('{"timestamp":"x"}').isEmpty, isTrue);
     });
   });
 
@@ -249,20 +197,6 @@ void main() {
       expect(tokens.fresh, 19527);
     });
 
-    test('a transcript line carries its own usage', () {
-      final temp = Directory.systemTemp.createTempSync('aitracker_tokens');
-      addTearDown(() => temp.deleteSync(recursive: true));
-      final dir = Directory('${temp.path}/projects/p')..createSync(recursive: true);
-      File('${dir.path}/s.jsonl').writeAsStringSync(
-        '{"timestamp":"2026-09-01T09:00:00.000Z","cwd":"/repo",'
-        '"message":{"usage":{"input_tokens":2,"cache_creation_input_tokens":18664,'
-        '"cache_read_input_tokens":25336,"output_tokens":761}}}\n',
-      );
-
-      final events = TranscriptScanner(['${temp.path}/projects']).scan();
-
-      expect(events.single.tokens.total, 44763);
-    });
   });
 
   group('parallel sessions', () {
@@ -462,7 +396,7 @@ void main() {
       });
     });
 
-    test('reads blocks from transcripts within a window', () {
+    test('reads blocks through the archive, within a window', () {
       final temp = Directory.systemTemp.createTempSync('aitracker');
       addTearDown(() => temp.deleteSync(recursive: true));
       final dir = Directory('${temp.path}/projects/p')..createSync(recursive: true);
@@ -479,6 +413,7 @@ void main() {
           idleGap: const Duration(hours: 1),
           rules: const [ProjectRule(match: 'idbuddy', project: 'BB - idbuddy')],
         ),
+        historyPath: '${temp.path}/history.db',
       );
 
       expect(tracking.blocks(), hasLength(1));

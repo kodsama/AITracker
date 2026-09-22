@@ -355,6 +355,14 @@ class SettingsScreen extends StatelessWidget {
         ),
 
         _Section(
+          title: 'History',
+          subtitle: 'The transcripts are read once into an archive here and '
+              'never dropped, so the hours, the tokens and the unmapped time '
+              'stay after an assistant prunes its own logs.',
+          child: _Archive(state: state),
+        ),
+
+        _Section(
           title: 'Log',
           subtitle: 'Every scan, export, refusal and rename, shared by the app, '
               'the command line and the MCP server.',
@@ -436,6 +444,81 @@ Future<void> _editSource(
     if (existing == null) chosen,
   ];
   await state.save(state.config.copyWith(sources: sources.toSet().toList()));
+}
+
+/// What the archive holds, and where it is.
+class _Archive extends StatefulWidget {
+  const _Archive({required this.state});
+
+  final AppState state;
+
+  @override
+  State<_Archive> createState() => _ArchiveState();
+}
+
+class _ArchiveState extends State<_Archive> {
+  late HistorySummary _summary = widget.state.archive();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final first = _summary.first;
+    final last = _summary.last;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ListTile(
+          title: Text(
+            _summary.events == 0
+                ? 'Nothing archived yet'
+                : '${_thousands(_summary.events)} events from '
+                      '${_summary.files} transcripts',
+          ),
+          subtitle: Text(
+            first == null || last == null
+                ? widget.state.historyPath
+                : '${_day(first)} to ${_day(last)}, '
+                      '${(_summary.bytes / 1024 / 1024).toStringAsFixed(1)} MB\n'
+                      '${widget.state.historyPath}',
+            style: theme.textTheme.bodySmall,
+          ),
+          isThreeLine: first != null,
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: 'Refresh',
+                icon: const Icon(Icons.refresh, size: 18),
+                onPressed: () =>
+                    setState(() => _summary = widget.state.archive()),
+              ),
+              IconButton(
+                tooltip: 'Show in Finder',
+                icon: const Icon(Icons.folder_open, size: 18),
+                onPressed: () => Process.runSync('/usr/bin/open', [
+                  '-R',
+                  widget.state.historyPath,
+                ]),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  static String _day(DateTime at) =>
+      '${at.day}/${at.month}/${at.year}';
+
+  static String _thousands(int count) {
+    final digits = '$count';
+    final buffer = StringBuffer();
+    for (var i = 0; i < digits.length; i++) {
+      if (i > 0 && (digits.length - i) % 3 == 0) buffer.write(' ');
+      buffer.write(digits[i]);
+    }
+    return buffer.toString();
+  }
 }
 
 /// The tail of the log, with a way to open the whole thing.

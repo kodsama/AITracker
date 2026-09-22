@@ -79,13 +79,15 @@ class AppState extends ChangeNotifier {
       ? null
       : '${configPath!.substring(0, configPath!.lastIndexOf('/'))}/mcp-token';
 
+  /// Where the archive lives: beside whichever configuration is in use.
+  String get historyPath => HistoryStore.besideConfig(configPath);
+
   AiTrackerConfig _config = const AiTrackerConfig(sources: []);
   OverrideStore _overrides = OverrideStore();
   Catalog _catalog = const Catalog();
   List<TrackedBlock> _blocks = const [];
   List<TrackedBlock> _exclusive = const [];
   List<TrackedBlock> _perProject = const [];
-  final TranscriptCache _cache = TranscriptCache();
   final Set<String> _selected = {};
   PeriodKind _periodKind = PeriodKind.thisMonth;
   DateTime? _customStart;
@@ -249,7 +251,9 @@ class AppState extends ChangeNotifier {
     _config = AiTrackerConfig.load(configPath);
     _overrides = OverrideStore.load(overridesPath);
     _catalog = Catalog.read(_config);
-    _worker ??= background ? await ScanWorker.start() : null;
+    _worker ??= background
+        ? await ScanWorker.start(historyPath: historyPath)
+        : null;
     if (_config.mcpEnabled && _mcp == null) await startMcp();
     await refresh();
   }
@@ -300,29 +304,17 @@ class AppState extends ChangeNotifier {
     OverrideStore overrides,
     Period window,
   ) {
-    final tracking = AiTracker(config: config, overrides: overrides);
-    final events = TranscriptScanner(
-      config.sources,
-      cache: _cache,
-    ).scan(since: window.start);
-    List<TrackedBlock> resolve(List<WorkBlock> blocks) => [
-      for (final block in blocks)
-        if (block.start.isBefore(window.end)) tracking.resolve(block),
-    ];
+    final tracking = AiTracker(
+      config: config,
+      overrides: overrides,
+      historyPath: historyPath,
+    );
     return ScanResult(
-      wallClock: resolve(
-        buildBlocks(
-          events,
-          idleGap: config.idleGap,
-          minBlock: config.minBlock,
-        ),
-      ),
-      perProject: resolve(
-        buildProjectBlocks(
-          events,
-          idleGap: config.idleGap,
-          minBlock: config.minBlock,
-        ),
+      wallClock: tracking.blocks(since: window.start, until: window.end),
+      perProject: tracking.blocks(
+        since: window.start,
+        until: window.end,
+        mode: BlockMode.perProject,
       ),
     );
   }
@@ -548,6 +540,16 @@ class AppState extends ChangeNotifier {
     );
     if (apply) await refresh();
     return reports;
+  }
+
+  /// What the archive holds, for the line in Settings.
+  HistorySummary archive() {
+    final store = HistoryStore.open(historyPath);
+    try {
+      return store.summary();
+    } finally {
+      store.close();
+    }
   }
 
   /// What WorkingHours now says about the blocks this tool wrote there.

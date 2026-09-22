@@ -17,7 +17,18 @@ What it does
 
 Claude Code keeps a JSONL transcript per session under `~/.claude/projects`,
 every line stamped with a time and the directory the session was working in.
-That is enough to reconstruct the day:
+The Gemini and Antigravity CLIs keep a history file of the same shape. Those
+are read once into a local archive that is never pruned, and everything else is
+computed from the archive: the hours, the tokens, the graphs, the unmapped
+time. An assistant that drops its own logs after a month takes nothing with it.
+
+The archive holds the events rather than the blocks, so the idle gap stays a
+setting: change it and the whole history is read again through the new one,
+rather than leaving a seam at the day you changed it. Days are worked out once
+per set of thresholds and kept, so a year on screen reads a few thousand rows
+instead of a million events.
+
+From those events:
 
 - Consecutive events closer together than the idle gap are one block of work.
 - A gap credits nothing, so lunch is not billed.
@@ -115,8 +126,9 @@ Configuration
 -------------
 
 `~/Library/Application Support/AITracker/config.json`, or `$AITRACKER_CONFIG`.
-Hand edits live beside it in `overrides.json`. Everything in the app writes to
-those two files, and nothing else is stored.
+Hand edits live beside it in `overrides.json`, the MCP key in `mcp-token`, and
+the archive in `history.db`. Everything the app writes is in that one folder,
+which is also the whole of what to back up.
 
 Building
 --------

@@ -34,6 +34,7 @@ List<McpTool> buildTools({String? configPath, String? overridesPath}) {
   AiTracker tracking() => AiTracker(
     config: AiTrackerConfig.load(configPath),
     overrides: OverrideStore.load(overridesPath),
+    historyPath: HistoryStore.besideConfig(configPath),
   );
 
   List<TrackedBlock> read(Map<String, Object?> args) =>

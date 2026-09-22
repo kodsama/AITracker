@@ -6,10 +6,10 @@
 library;
 
 export 'src/activity.dart';
-export 'src/cache.dart';
 export 'src/catalog.dart';
 export 'src/colors.dart';
 export 'src/config.dart';
+export 'src/history.dart';
 export 'src/log.dart';
 export 'src/mac_apps.dart';
 export 'src/overrides.dart';

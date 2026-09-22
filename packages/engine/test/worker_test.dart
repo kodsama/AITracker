@@ -32,6 +32,7 @@ void main() {
     worker = await ScanWorker.start(
       logging: true,
       logFile: '${temp.path}/log.txt',
+      historyPath: '${temp.path}/history.db',
     );
   });
 
@@ -102,20 +103,24 @@ void main() {
     expect(results.last.wallClock, hasLength(2));
   });
 
-  test('a second scan reuses what it parsed', () async {
+  test('a second scan reads nothing new off disk', () async {
     await worker.scan(
       config: config,
       overrides: OverrideStore(),
       window: window(),
     );
+    Log.useFile('${temp.path}/log.txt');
+    final afterFirst = Log.tail().length;
+
     await worker.scan(
       config: config,
       overrides: OverrideStore(),
       window: window(),
     );
 
-    Log.useFile('${temp.path}/log.txt');
-    expect(Log.tail().last, contains('2 from cache'));
+    // The archive only speaks up when it took something in.
+    expect(Log.tail().length, afterFirst);
+    expect(File('${temp.path}/history.db').existsSync(), isTrue);
   });
 
   test('a stopped worker answers nothing rather than hanging', () async {
