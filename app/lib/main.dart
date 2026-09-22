@@ -1,3 +1,4 @@
+import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:flutter/material.dart';
 
 import 'src/screens/graphs_screen.dart';
@@ -99,7 +100,17 @@ class _HomeShellState extends State<HomeShell> {
               animation: widget.state,
               builder: (context, _) => switch (_index) {
                 0 => HoursScreen(state: widget.state),
-                1 => GraphsScreen(state: widget.state),
+                1 => GraphsScreen(
+                  state: widget.state,
+                  onOpenDay: (day) {
+                    widget.state.setPeriod(
+                      PeriodKind.custom,
+                      start: day,
+                      end: day,
+                    );
+                    setState(() => _index = 0);
+                  },
+                ),
                 2 => RulesScreen(state: widget.state),
                 _ => SettingsScreen(state: widget.state),
               },

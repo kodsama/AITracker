@@ -2,6 +2,7 @@ import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:flutter/material.dart';
 
 import '../state/app_state.dart';
+import 'breakdown.dart';
 import 'period_picker.dart';
 
 /// The top of the Hours screen: how much time, over what window, and the button
@@ -29,86 +30,110 @@ class SummaryHeader extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                formatDuration(state.total),
-                style: theme.textTheme.displaySmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -1,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Flexible(
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Text(
-                    state.mode == CountMode.perProject
-                        ? 'across projects, ${formatDuration(state.wallClock)} '
-                              'on the clock'
-                        : 'with an AI assistant',
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+          LayoutBuilder(
+            builder: (context, constraints) {
+              // The total never gives up room. The words beside it go first,
+              // then the button shrinks to its icon.
+              final roomForWords = constraints.maxWidth > 540;
+              final roomForLabel = constraints.maxWidth > 420;
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    formatDuration(state.total),
+                    style: theme.textTheme.displaySmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: -1,
                     ),
                   ),
-                ),
-              ),
-              const Spacer(),
-              if (state.loading)
-                const Padding(
-                  padding: EdgeInsets.only(right: 4, bottom: 8),
-                  child: SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                  if (roomForWords) ...[
+                    const SizedBox(width: 12),
+                    Flexible(
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          state.mode == CountMode.perProject
+                              ? 'across projects, '
+                                    '${formatDuration(state.wallClock)} on the clock'
+                              : 'with an AI assistant',
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                  const Spacer(),
+                  if (state.loading)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 12, bottom: 10),
+                      child: Row(
+                        children: [
+                          const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                          if (state.reading && roomForWords) ...[
+                            const SizedBox(width: 8),
+                            Text(
+                              'reading transcripts',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: roomForLabel
+                        ? FilledButton.icon(
+                            onPressed: state.blocks.isEmpty ? null : onSync,
+                            icon: const Icon(Icons.sync, size: 20),
+                            label: const Text('Sync…'),
+                          )
+                        : IconButton.filled(
+                            tooltip: 'Sync',
+                            onPressed: state.blocks.isEmpty ? null : onSync,
+                            icon: const Icon(Icons.sync),
+                          ),
                   ),
-                ),
-            ],
+                ],
+              );
+            },
           ),
           const SizedBox(height: 16),
           PeriodPicker(state: state),
           const SizedBox(height: 14),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+          Wrap(
+            spacing: 24,
+            runSpacing: 6,
             children: [
-              Expanded(
-                child: Wrap(
-                  spacing: 24,
-                  runSpacing: 6,
-                  children: [
-                    _Figure(
-                      label: 'On the clock',
-                      value: formatDuration(state.wallClock),
-                      help:
-                          'A minute counts once, however many sessions were in it',
-                    ),
-                    _Figure(
-                      label: 'Across projects',
-                      value: formatDuration(state.total),
-                      help: 'Parallel sessions counted for each project',
-                    ),
-                    if (!tokens.isEmpty) ...[
-                      _Figure(
-                        label: 'Tokens',
-                        value: _compact(tokens.total),
-                        help: 'Everything that passed through, cache included',
-                      ),
-                      _Figure(
-                        label: 'Not cached',
-                        value: _compact(tokens.fresh),
-                        help: 'Input, output and cache writes',
-                      ),
-                    ],
-                  ],
+              _Figure(
+                label: 'On the clock',
+                value: formatDuration(state.wallClock),
+                help: 'A minute counts once, however many sessions were in it',
+              ),
+              _Figure(
+                label: 'Across projects',
+                value: formatDuration(state.total),
+                help: 'Parallel sessions counted for each project',
+              ),
+              if (!tokens.isEmpty) ...[
+                _Figure(
+                  label: 'Tokens',
+                  value: compactCount(tokens.total),
+                  help: 'Everything that passed through, cache included',
                 ),
-              ),
-              FilledButton.icon(
-                onPressed: state.blocks.isEmpty ? null : onSync,
-                icon: const Icon(Icons.sync, size: 20),
-                label: const Text('Sync…'),
-              ),
+                _Figure(
+                  label: 'Not cached',
+                  value: compactCount(tokens.fresh),
+                  help: 'Input, output and cache writes',
+                ),
+              ],
             ],
           ),
           if (totals.isNotEmpty) ...[
@@ -166,14 +191,6 @@ class _Figure extends StatelessWidget {
       ),
     );
   }
-}
-
-/// `1.2M`, because a token count in full is unreadable at a glance.
-String _compact(int count) {
-  if (count >= 1000000000) return '${(count / 1000000000).toStringAsFixed(1)}B';
-  if (count >= 1000000) return '${(count / 1000000).toStringAsFixed(1)}M';
-  if (count >= 1000) return '${(count / 1000).toStringAsFixed(1)}k';
-  return '$count';
 }
 
 class _ProjectBar extends StatelessWidget {

@@ -438,30 +438,72 @@ class AiTrackerConfig {
   ///
   /// Claude Code keeps one directory per project under `~/.claude*/projects`,
   /// and `CLAUDE_CONFIG_DIR` lets a distribution move that root, so the sweep
-  /// catches side-by-side installs. The Gemini and Antigravity CLIs keep a
-  /// history file under `~/.gemini`.
+  /// catches side-by-side installs. The others keep a history file under a
+  /// folder of their own. A folder that is not there is not offered.
   static List<String> discoverSources() {
     final home = homeDirectory();
     final found = <String>[];
+
+    void add(String path, {bool onlyWithTranscripts = false}) {
+      if (found.contains(path)) return;
+      final dir = Directory(path);
+      if (!dir.existsSync()) return;
+      if (onlyWithTranscripts && !holdsTranscripts(dir)) return;
+      found.add(path);
+    }
+
     final configured = Platform.environment['CLAUDE_CONFIG_DIR'];
     if (configured != null && configured.isNotEmpty) {
-      found.add(p.join(configured, 'projects'));
+      add(p.join(configured, 'projects'));
     }
     final dir = Directory(home);
     if (dir.existsSync()) {
       for (final entry in dir.listSync().whereType<Directory>()) {
         final name = p.basename(entry.path);
         if (!name.startsWith('.claude')) continue;
-        final projects = p.join(entry.path, 'projects');
-        if (Directory(projects).existsSync() && !found.contains(projects)) {
-          found.add(projects);
-        }
+        add(p.join(entry.path, 'projects'));
       }
     }
-    final gemini = p.join(home, '.gemini');
-    if (Directory(gemini).existsSync()) found.add(gemini);
+    for (final assistant in assistantFolders) {
+      add(p.join(home, assistant), onlyWithTranscripts: true);
+    }
     found.sort();
     return found;
+  }
+
+  /// Folders the other assistants keep their history in.
+  ///
+  /// Each is offered when it holds transcripts, so a machine picks up whichever
+  /// assistants it actually has. Several of these also exist as editor support
+  /// folders full of extensions and caches; those hold no transcripts and are
+  /// not offered, and would start being offered the day they do.
+  static const List<String> assistantFolders = [
+    '.gemini',
+    '.antigravity',
+    '.antigravity-ide',
+    '.codex',
+    '.cursor',
+    '.windsurf',
+    '.aider',
+  ];
+
+  /// Whether [dir] holds a transcript within [depth] levels.
+  ///
+  /// Stops at the first one: some of these folders hold thousands of files and
+  /// the question is only whether there is anything to read.
+  static bool holdsTranscripts(Directory dir, {int depth = 3}) {
+    if (depth < 0) return false;
+    try {
+      for (final entry in dir.listSync(followLinks: false)) {
+        if (entry is File && p.extension(entry.path) == '.jsonl') return true;
+        if (entry is Directory && holdsTranscripts(entry, depth: depth - 1)) {
+          return true;
+        }
+      }
+    } on FileSystemException {
+      return false;
+    }
+    return false;
   }
 
   /// The user's home directory.

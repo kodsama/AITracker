@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -79,6 +81,9 @@ class HistoryStore {
 
   /// Schema this build writes.
   static const int schemaVersion = 1;
+
+  /// How much of a transcript is held in memory at once.
+  static const int _chunkBytes = 1 << 22;
 
   /// The archive beside the configuration.
   static String defaultPath() => besideConfig(null);
@@ -173,39 +178,40 @@ class HistoryStore {
     var touched = 0;
     final days = <int>{};
 
-    _db.execute('begin');
-    try {
-      for (final source in sources) {
-        final dir = Directory(source);
-        if (!dir.existsSync()) {
-          Log.warn('transcript folder is not there: $source');
+    for (final source in sources) {
+      final dir = Directory(source);
+      if (!dir.existsSync()) {
+        Log.warn('transcript folder is not there: $source');
+        continue;
+      }
+      for (final file in dir.listSync(recursive: true).whereType<File>()) {
+        if (p.extension(file.path) != '.jsonl') continue;
+        // A transaction per file rather than one around the lot: a first run
+        // over months of history is a long job, and a file already read should
+        // stay read whatever happens to the next one.
+        _db.execute('begin');
+        final int? events;
+        try {
+          events = _ingestFile(file, days);
+          _db.execute('commit');
+        } on Object catch (error) {
+          _db.execute('rollback');
+          Log.error('could not read ${file.path}', error);
           continue;
         }
-        for (final file in dir.listSync(recursive: true).whereType<File>()) {
-          if (p.extension(file.path) != '.jsonl') continue;
-          final events = _ingestFile(file);
-          if (events == null) continue;
-          touched++;
-          added += events;
-        }
+        if (events == null) continue;
+        touched++;
+        added += events;
       }
-      if (added > 0) {
-        for (final row in _db.select(
-          'select distinct at from events order by at desc limit ?',
-          [added],
-        )) {
-          days.add(_dayOf(row['at']! as int));
-        }
-      }
+    }
+
+    if (days.isNotEmpty) {
+      _db.execute('begin');
       for (final day in days) {
         _db.execute('delete from blocks where day = ?', [day]);
         _db.execute('delete from days where day = ?', [day]);
       }
       _db.execute('commit');
-    } on Object catch (error) {
-      _db.execute('rollback');
-      Log.error('could not read transcripts into the archive', error);
-      rethrow;
     }
 
     if (touched > 0) {
@@ -219,7 +225,7 @@ class HistoryStore {
 
   /// Reads one file, returning how many events it added, or null when there was
   /// nothing new in it.
-  int? _ingestFile(File file) {
+  int? _ingestFile(File file, Set<int> days) {
     final stat = file.statSync();
     final held = _db.select('select * from files where path = ?', [file.path]);
     final known = held.isEmpty ? null : held.first;
@@ -246,12 +252,6 @@ class HistoryStore {
       }
       if (offset >= stat.size) return null;
 
-      handle.setPositionSync(offset);
-      final bytes = handle.readSync(stat.size - offset);
-      final lastBreak = bytes.lastIndexOf(10);
-      if (lastBreak < 0) return null;
-      final text = utf8.decode(bytes.sublist(0, lastBreak + 1), allowMalformed: true);
-
       var format = known == null || rewritten
           ? TranscriptFormat.unknown
           : TranscriptFormat.values.firstWhere(
@@ -261,20 +261,52 @@ class HistoryStore {
       var directory = rewritten ? '' : '${known?['directory'] ?? ''}';
       final session = p.basenameWithoutExtension(file.path);
       final events = <ActivityEvent>[];
-      for (final line in const LineSplitter().convert(text)) {
-        if (line.trim().isEmpty) continue;
-        if (format == TranscriptFormat.unknown) format = formatOf(line);
-        directory = directory.isEmpty
-            ? directoryIn(line, format) ?? ''
-            : directory;
-        final event = parseTranscriptLine(
-          line,
-          format,
-          directory: directory.isEmpty ? _folderOf(file) : directory,
-          session: session,
+
+      // Read in chunks rather than whole: a long session runs to tens of
+      // megabytes, and holding one as bytes, then as a copy, then as a string,
+      // then as a list of lines is what made the first run take minutes.
+      var position = offset;
+      var consumed = offset;
+      var pending = Uint8List(0);
+      while (position < stat.size) {
+        handle.setPositionSync(position);
+        final data = handle.readSync(
+          math.min(_chunkBytes, stat.size - position),
         );
-        if (event != null) events.add(event);
+        if (data.isEmpty) break;
+        position += data.length;
+        var from = 0;
+        for (var i = 0; i < data.length; i++) {
+          if (data[i] != 10) continue;
+          final line = pending.isEmpty
+              ? utf8.decode(
+                  Uint8List.sublistView(data, from, i),
+                  allowMalformed: true,
+                )
+              : utf8.decode(
+                  Uint8List.fromList([...pending, ...data.sublist(from, i)]),
+                  allowMalformed: true,
+                );
+          pending = Uint8List(0);
+          from = i + 1;
+          consumed = position - (data.length - from);
+          if (line.trim().isEmpty) continue;
+          if (format == TranscriptFormat.unknown) format = formatOf(line);
+          if (directory.isEmpty) directory = directoryIn(line, format) ?? '';
+          final event = parseTranscriptLine(
+            line,
+            format,
+            directory: directory.isEmpty ? _folderOf(file) : directory,
+            session: session,
+          );
+          if (event == null) continue;
+          events.add(event);
+          // The days these events land in have to be worked out again.
+          days.add(_dayOf(event.time.millisecondsSinceEpoch));
+        }
+        pending = Uint8List.fromList([...pending, ...data.sublist(from)]);
       }
+      if (consumed == offset) return null;
 
       if (id == null) {
         _db.execute(
@@ -284,7 +316,7 @@ class HistoryStore {
             file.path,
             stat.size,
             modified,
-            offset + lastBreak + 1,
+            consumed,
             head,
             format.name,
             directory,
@@ -298,7 +330,7 @@ class HistoryStore {
           [
             stat.size,
             modified,
-            offset + lastBreak + 1,
+            consumed,
             head,
             format.name,
             directory,

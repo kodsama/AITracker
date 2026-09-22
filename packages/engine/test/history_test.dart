@@ -269,6 +269,39 @@ void main() {
     expect(summary.toJson()['events'], 2);
   });
 
+  test('a day is worked out again only when its own events change', () {
+    write('a.jsonl', [line('2026-09-01T07:00:00.000Z'), line('2026-09-01T07:20:00.000Z')]);
+    write('b.jsonl', [line('2026-09-05T07:00:00.000Z'), line('2026-09-05T07:20:00.000Z')]);
+    ingest();
+    List<WorkBlock> read() => store.blocks(
+      from: DateTime(2026, 9),
+      to: DateTime(2026, 10),
+      idleGap: const Duration(minutes: 30),
+      minBlock: const Duration(minutes: 5),
+    );
+    expect(read(), hasLength(2));
+
+    // Appending to one day must not throw away what the other day cost.
+    File('${projects.path}/a.jsonl').writeAsStringSync(
+      '${line('2026-09-01T07:30:00.000Z')}\n',
+      mode: FileMode.append,
+    );
+    ingest();
+
+    final blocks = read();
+    expect(blocks, hasLength(2));
+    expect(blocks.first.duration, const Duration(minutes: 30));
+    expect(blocks.last.duration, const Duration(minutes: 20));
+  });
+
+  test('a file that cannot be read does not stop the rest', () {
+    write('a.jsonl', [line('2026-09-01T07:00:00.000Z')]);
+    Directory('${projects.path}/b.jsonl').createSync();
+
+    expect(ingest(), 1);
+    expect(all(), hasLength(1));
+  });
+
   test('a source folder that is not there is not a failure', () {
     expect(store.ingest(['/nonexistent/projects']), 0);
     expect(all(), isEmpty);

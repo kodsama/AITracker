@@ -21,6 +21,7 @@ export 'src/sinks/report.dart';
 export 'src/sinks/sync.dart';
 export 'src/sinks/tabular.dart';
 export 'src/sinks/workinghours.dart';
+export 'src/summary.dart';
 export 'src/ticks.dart';
 export 'src/token.dart';
 export 'src/tracking.dart';

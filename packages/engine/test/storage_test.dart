@@ -97,6 +97,37 @@ void main() {
       );
     });
 
+    test('a folder is only offered when it holds transcripts', () {
+      final assistant = Directory('${temp.path}/.someone/sessions')
+        ..createSync(recursive: true);
+      final empty = Directory('${temp.path}/.nobody/extensions')
+        ..createSync(recursive: true);
+
+      expect(
+        AiTrackerConfig.holdsTranscripts(Directory('${temp.path}/.someone')),
+        isFalse,
+      );
+
+      File('${assistant.path}/a.jsonl').writeAsStringSync('{}\n');
+
+      expect(
+        AiTrackerConfig.holdsTranscripts(Directory('${temp.path}/.someone')),
+        isTrue,
+      );
+      expect(
+        AiTrackerConfig.holdsTranscripts(Directory(empty.parent.path)),
+        isFalse,
+      );
+      // Deep enough to hide from a shallow look is deep enough to ignore.
+      expect(
+        AiTrackerConfig.holdsTranscripts(
+          Directory('${temp.path}/.someone'),
+          depth: 0,
+        ),
+        isFalse,
+      );
+    });
+
     test('sources are discovered from the assistant config directories', () {
       final found = AiTrackerConfig.discoverSources();
       for (final source in found) {

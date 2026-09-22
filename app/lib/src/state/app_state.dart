@@ -97,6 +97,7 @@ class AppState extends ChangeNotifier {
   BlockFilter _filter = BlockFilter.all;
   String _query = '';
   bool _loading = true;
+  bool _reading = false;
   int _scan = 0;
   ScanWorker? _worker;
   String? _trouble;
@@ -168,6 +169,10 @@ class AppState extends ChangeNotifier {
 
   /// Whether a scan is in flight.
   bool get loading => _loading;
+
+  /// Whether transcripts are being read into the archive, which on a first run
+  /// takes a while and is worth saying out loud.
+  bool get reading => _reading;
 
   /// What went wrong last, for the banner. Null when all is well.
   String? get trouble => _trouble;
@@ -269,6 +274,21 @@ class AppState extends ChangeNotifier {
     _trouble = null;
     notifyListeners();
 
+    // What is already archived first, so a window paints at once; then the
+    // transcripts, which on a first run is a minute of reading.
+    await _load(generation, ingest: false);
+    if (generation != _scan) return;
+    _reading = true;
+    notifyListeners();
+    await _load(generation, ingest: true);
+    if (generation != _scan) return;
+    _reading = false;
+    _loading = false;
+    notifyListeners();
+    await _fileAutomatically();
+  }
+
+  Future<void> _load(int generation, {required bool ingest}) async {
     final config = _config;
     final overrides = _overrides;
     final window = period;
@@ -279,8 +299,9 @@ class AppState extends ChangeNotifier {
               config: config,
               overrides: overrides,
               window: window,
+              ingest: ingest,
             )
-          : _scanHere(config, overrides, window);
+          : _scanHere(config, overrides, window, ingest: ingest);
       if (generation != _scan) return;
       _exclusive = found.wallClock;
       _perProject = found.perProject;
@@ -288,13 +309,11 @@ class AppState extends ChangeNotifier {
           .reversed
           .toList();
       _selected.removeWhere((key) => !_blocks.any((b) => b.key == key));
+      notifyListeners();
     } on Object catch (error) {
       if (generation != _scan) return;
       _trouble = 'Could not read the transcripts: $error';
     }
-    _loading = false;
-    notifyListeners();
-    await _fileAutomatically();
   }
 
   /// Scans on this thread, which is what the tests do: an isolate a widget
@@ -302,19 +321,25 @@ class AppState extends ChangeNotifier {
   ScanResult _scanHere(
     AiTrackerConfig config,
     OverrideStore overrides,
-    Period window,
-  ) {
+    Period window, {
+    bool ingest = true,
+  }) {
     final tracking = AiTracker(
       config: config,
       overrides: overrides,
       historyPath: historyPath,
     );
     return ScanResult(
-      wallClock: tracking.blocks(since: window.start, until: window.end),
+      wallClock: tracking.blocks(
+        since: window.start,
+        until: window.end,
+        ingest: ingest,
+      ),
       perProject: tracking.blocks(
         since: window.start,
         until: window.end,
         mode: BlockMode.perProject,
+        ingest: false,
       ),
     );
   }

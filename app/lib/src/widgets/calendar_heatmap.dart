@@ -15,6 +15,7 @@ class CalendarHeatmap extends StatefulWidget {
     required this.days,
     required this.period,
     required this.colorOf,
+    this.onDayTapped,
     super.key,
   });
 
@@ -27,6 +28,9 @@ class CalendarHeatmap extends StatefulWidget {
 
   /// Colour for a project.
   final Color Function(String project) colorOf;
+
+  /// Called when a day is clicked, which opens it.
+  final ValueChanged<DateTime>? onDayTapped;
 
   /// Space between day cells.
   static const double gap = 4;
@@ -130,6 +134,7 @@ class _CalendarHeatmapState extends State<CalendarHeatmap> {
                       hovered: _hovered,
                       colorOf: widget.colorOf,
                       onHover: (day) => setState(() => _hovered = day),
+                      onTapped: widget.onDayTapped,
                     ),
                   ),
               ],
@@ -190,6 +195,7 @@ class _Month extends StatelessWidget {
     required this.hovered,
     required this.colorOf,
     required this.onHover,
+    required this.onTapped,
   });
 
   final DateTime month;
@@ -200,6 +206,7 @@ class _Month extends StatelessWidget {
   final DateTime? hovered;
   final Color Function(String) colorOf;
   final ValueChanged<DateTime?> onHover;
+  final ValueChanged<DateTime>? onTapped;
 
   @override
   Widget build(BuildContext context) {
@@ -276,6 +283,9 @@ class _Month extends StatelessWidget {
     }
     final day = DateTime(month.year, month.month, dayOfMonth);
     return _Cell(
+      // A day appears once per calendar, and the months either side of the
+      // window repeat nothing, so the date is its identity.
+      key: Key('day-${_iso(day)}'),
       day: day,
       row: days[day] ?? const {},
       busiest: busiest,
@@ -284,6 +294,7 @@ class _Month extends StatelessWidget {
       size: cell,
       colorOf: colorOf,
       onHover: (over) => onHover(over ? day : null),
+      onTapped: onTapped == null ? null : () => onTapped!(day),
     );
   }
 
@@ -298,6 +309,12 @@ class _Month extends StatelessWidget {
   }
 }
 
+/// `2026-09-22`.
+String _iso(DateTime day) =>
+    '${day.year.toString().padLeft(4, '0')}-'
+    '${day.month.toString().padLeft(2, '0')}-'
+    '${day.day.toString().padLeft(2, '0')}';
+
 class _Cell extends StatelessWidget {
   const _Cell({
     required this.day,
@@ -308,6 +325,8 @@ class _Cell extends StatelessWidget {
     required this.size,
     required this.colorOf,
     required this.onHover,
+    required this.onTapped,
+    super.key,
   });
 
   final DateTime day;
@@ -318,6 +337,7 @@ class _Cell extends StatelessWidget {
   final double size;
   final Color Function(String) colorOf;
   final ValueChanged<bool> onHover;
+  final VoidCallback? onTapped;
 
   @override
   Widget build(BuildContext context) {
@@ -336,9 +356,12 @@ class _Cell extends StatelessWidget {
           );
 
     return MouseRegion(
+      cursor: onTapped == null ? MouseCursor.defer : SystemMouseCursors.click,
       onEnter: (_) => onHover(true),
       onExit: (_) => onHover(false),
-      child: Padding(
+      child: GestureDetector(
+        onTap: onTapped,
+        child: Padding(
         padding: const EdgeInsets.only(
           right: CalendarHeatmap.gap,
           bottom: CalendarHeatmap.gap,
@@ -363,6 +386,7 @@ class _Cell extends StatelessWidget {
                     )
                   : _inkOn(colour),
             ),
+          ),
           ),
         ),
       ),
@@ -390,7 +414,7 @@ class _Readout extends StatelessWidget {
     final theme = Theme.of(context);
     if (day == null) {
       return Text(
-        'Hover a day to see what it held.',
+        'Hover a day to see what it held, click it to open it.',
         style: theme.textTheme.bodySmall?.copyWith(
           color: theme.colorScheme.onSurfaceVariant,
         ),

@@ -2,6 +2,7 @@ import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:flutter/material.dart';
 
 import '../state/app_state.dart';
+import '../widgets/breakdown.dart';
 import '../widgets/calendar_heatmap.dart';
 import '../widgets/period_picker.dart';
 import '../widgets/stacked_bars.dart';
@@ -10,10 +11,13 @@ import '../widgets/stacked_bars.dart';
 /// days themselves.
 class GraphsScreen extends StatelessWidget {
   /// Creates the screen.
-  const GraphsScreen({required this.state, super.key});
+  const GraphsScreen({required this.state, required this.onOpenDay, super.key});
 
   /// App state.
   final AppState state;
+
+  /// Called when a day in the calendar is clicked.
+  final ValueChanged<DateTime> onOpenDay;
 
   /// Projects charted individually before the rest fold into one slice. The
   /// palette holds eight hues and folding beats inventing a ninth.
@@ -112,6 +116,13 @@ class GraphsScreen extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           _Panel(
+            title: 'Breakdown',
+            subtitle: 'Time and tokens together, grouped how you like and '
+                'sorted by any column.',
+            child: Breakdown(state: state),
+          ),
+          const SizedBox(height: 20),
+          _Panel(
             title: 'Calendar',
             subtitle: 'Each day in the colour of the project that took most of '
                 'it, darker the longer it ran.',
@@ -119,6 +130,7 @@ class GraphsScreen extends StatelessWidget {
               days: calendar,
               period: period,
               colorOf: colourOf,
+              onDayTapped: onOpenDay,
             ),
           ),
         ],

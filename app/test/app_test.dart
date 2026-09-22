@@ -197,8 +197,12 @@ void main() {
     expect(find.text('Calendar'), findsOneWidget);
     // Legend names both the mapped project and the unmapped time.
     expect(find.text('Byte Buddies - idbuddy'), findsWidgets);
-    expect(find.text('Unmapped'), findsOneWidget);
-    expect(find.text('Hover a day to see what it held.'), findsOneWidget);
+    // Named in the legend and again in the breakdown.
+    expect(find.text('Unmapped'), findsWidgets);
+    expect(
+      find.text('Hover a day to see what it held, click it to open it.'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('the period picker switches the window', (tester) async {
@@ -206,7 +210,9 @@ void main() {
 
     await tester.tap(find.text('Graphs'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Yesterday'));
+    await tester.tap(find.byType(DropdownMenu<PeriodKind>).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Yesterday').last);
     await tester.pumpAndSettle();
 
     expect(state.periodKind, PeriodKind.yesterday);
@@ -237,7 +243,7 @@ void main() {
   ) async {
     final state = await pump(tester);
 
-    await tester.enterText(find.byType(TextField).first, 'unmapped');
+    await tester.enterText(find.byKey(const Key('search')), 'unmapped');
     await tester.pumpAndSettle();
 
     expect(state.blocks, hasLength(1));
@@ -266,6 +272,55 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(state.selected, isEmpty);
+  });
+
+  testWidgets('the breakdown groups time and tokens, and sorts', (
+    tester,
+  ) async {
+    await pump(tester);
+
+    await tester.tap(find.text('Graphs'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('Breakdown'),
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('TOKENS'), findsOneWidget);
+    expect(find.text('PER HOUR'), findsOneWidget);
+
+    // Grouping by repository names the folders rather than the projects.
+    await tester.tap(find.text('Repository'));
+    await tester.pumpAndSettle();
+    expect(find.text('idbuddy'), findsWidgets);
+    expect(find.text('mystery'), findsWidgets);
+  });
+
+  testWidgets('clicking a day in the calendar opens it', (tester) async {
+    final state = await pump(tester);
+    final today = DateTime.now();
+
+    await tester.tap(find.text('Graphs'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('Calendar'),
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    final key =
+        'day-${today.year}-${today.month.toString().padLeft(2, '0')}-'
+        '${today.day.toString().padLeft(2, '0')}';
+    await tester.tap(find.byKey(Key(key)));
+    await tester.pumpAndSettle();
+
+    expect(state.periodKind, PeriodKind.custom);
+    expect(state.period.start, DateTime(today.year, today.month, today.day));
+    expect(state.period.days, 1);
+    // And it lands back on the hours, which is where the detail is.
+    expect(find.text('Search the description, project or folder'), findsWidgets);
   });
 
   testWidgets('the calendar lays a month out as a grid that fills the card', (

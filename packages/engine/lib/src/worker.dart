@@ -85,10 +85,13 @@ class ScanWorker {
   }
 
   /// Blocks in [window], resolved through [config] and [overrides].
+  /// With [ingest] false the archive is only read, which is how a window is
+  /// painted before the transcripts are looked at.
   Future<ScanResult> scan({
     required AiTrackerConfig config,
     required OverrideStore overrides,
     required Period window,
+    bool ingest = true,
   }) {
     if (_stopping) return Future.value(ScanResult.empty);
     final id = _next++;
@@ -103,6 +106,7 @@ class ScanWorker {
       },
       window.start.toIso8601String(),
       window.end.toIso8601String(),
+      ingest,
     ]);
     return waiting.future;
   }
@@ -178,7 +182,7 @@ class ScanWorker {
           history: history,
           historyPath: null,
         );
-        history.ingest(config.sources);
+        if (request[5]! as bool) history.ingest(config.sources);
         responses.send([
           id,
           ScanResult(

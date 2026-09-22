@@ -89,10 +89,11 @@ class AiTracker {
     DateTime? since,
     DateTime? until,
     BlockMode mode = BlockMode.wallClock,
+    bool ingest = true,
   }) {
     final store = history ?? HistoryStore.open(historyPath);
     try {
-      store.ingest(config.sources);
+      if (ingest) store.ingest(config.sources);
       return [
         for (final block in store.blocks(
           from: since ?? DateTime(2000),

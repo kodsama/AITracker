@@ -101,6 +101,7 @@ class _SearchRowState extends State<_SearchRow> {
           const SizedBox(width: 12),
           Expanded(
             child: TextField(
+              key: const Key('search'),
               controller: _controller,
               decoration: InputDecoration(
                 hintText: 'Search the description, project or folder',
