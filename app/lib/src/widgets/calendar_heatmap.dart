@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:flutter/material.dart';
 
+import '../measures.dart';
+
 /// A calendar of the period, a month to a block, each day painted in the colour
 /// of the project that took most of it and shaded by how much of it there was.
 ///
@@ -15,12 +17,16 @@ class CalendarHeatmap extends StatefulWidget {
     required this.days,
     required this.period,
     required this.colorOf,
+    required this.amount,
     this.onDayTapped,
     super.key,
   });
 
-  /// Day to project to time.
-  final Map<DateTime, Map<String, Duration>> days;
+  /// Day to project to however much.
+  final Map<DateTime, Map<String, double>> days;
+
+  /// What the shading means, and how it reads.
+  final Amount amount;
 
   /// Window to draw. Whole months are shown, with the days outside the window
   /// dimmed, so a week in the middle of a month still reads as a week.
@@ -99,9 +105,9 @@ class _CalendarHeatmapState extends State<CalendarHeatmap> {
   @override
   Widget build(BuildContext context) {
     final months = _months;
-    final busiest = widget.days.values.fold<Duration>(
-      Duration.zero,
-      (most, row) => bucketTotal(row) > most ? bucketTotal(row) : most,
+    final busiest = widget.days.values.fold<double>(
+      0,
+      (most, row) => math.max(most, rowTotal(row)),
     );
 
     return LayoutBuilder(
@@ -133,6 +139,7 @@ class _CalendarHeatmapState extends State<CalendarHeatmap> {
                       busiest: busiest,
                       hovered: _hovered,
                       colorOf: widget.colorOf,
+                      amount: widget.amount,
                       onHover: (day) => setState(() => _hovered = day),
                       onTapped: widget.onDayTapped,
                     ),
@@ -146,6 +153,7 @@ class _CalendarHeatmapState extends State<CalendarHeatmap> {
                   ? const {}
                   : widget.days[_hovered!] ?? const {},
               colorOf: widget.colorOf,
+              amount: widget.amount,
             ),
           ],
         );
@@ -194,17 +202,19 @@ class _Month extends StatelessWidget {
     required this.busiest,
     required this.hovered,
     required this.colorOf,
+    required this.amount,
     required this.onHover,
     required this.onTapped,
   });
 
   final DateTime month;
   final double cell;
-  final Map<DateTime, Map<String, Duration>> days;
+  final Map<DateTime, Map<String, double>> days;
   final Period period;
-  final Duration busiest;
+  final double busiest;
   final DateTime? hovered;
   final Color Function(String) colorOf;
+  final Amount amount;
   final ValueChanged<DateTime?> onHover;
   final ValueChanged<DateTime>? onTapped;
 
@@ -330,8 +340,8 @@ class _Cell extends StatelessWidget {
   });
 
   final DateTime day;
-  final Map<String, Duration> row;
-  final Duration busiest;
+  final Map<String, double> row;
+  final double busiest;
   final bool inPeriod;
   final bool hovered;
   final double size;
@@ -342,11 +352,9 @@ class _Cell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final worked = bucketTotal(row);
+    final worked = rowTotal(row);
     final project = dominantProject(row);
-    final share = busiest.inMinutes == 0
-        ? 0.0
-        : worked.inMinutes / busiest.inMinutes;
+    final share = busiest == 0 ? 0.0 : worked / busiest;
     final colour = project == null
         ? theme.colorScheme.surfaceContainerHighest.withValues(
             alpha: inPeriod ? 1 : 0.35,
@@ -403,11 +411,13 @@ class _Readout extends StatelessWidget {
     required this.day,
     required this.row,
     required this.colorOf,
+    required this.amount,
   });
 
   final DateTime? day;
-  final Map<String, Duration> row;
+  final Map<String, double> row;
   final Color Function(String) colorOf;
+  final Amount amount;
 
   @override
   Widget build(BuildContext context) {
@@ -448,7 +458,7 @@ class _Readout extends StatelessWidget {
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  '${entry.key} ${formatDuration(entry.value)}',
+                  '${entry.key} ${amount.format(entry.value)}',
                   style: theme.textTheme.bodySmall,
                 ),
               ],

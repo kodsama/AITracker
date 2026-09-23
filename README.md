@@ -37,6 +37,10 @@ rather than leaving a seam at the day you changed it. Days are worked out once
 per set of thresholds and kept, so a year on screen reads a few thousand rows
 instead of a million events.
 
+The graphs draw hours, tokens, or one chart of each: two quantities that far
+apart never share an axis. Anywhere you can click through to, back and forward
+will take you out of again, on the buttons or on ⌘[ and ⌘].
+
 From those events:
 
 - Consecutive events closer together than the idle gap are one block of work.

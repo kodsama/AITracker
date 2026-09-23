@@ -1,11 +1,17 @@
 import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:test/test.dart';
 
-TrackedBlock block(String day, {String? project, int hours = 1}) => TrackedBlock(
+TrackedBlock block(
+  String day, {
+  String? project,
+  int hours = 1,
+  int tokens = 0,
+}) => TrackedBlock(
   block: WorkBlock(
     directory: '/repo',
     start: DateTime.parse('${day}T09:00:00'),
     end: DateTime.parse('${day}T09:00:00').add(Duration(hours: hours)),
+    tokens: TokenUsage(input: tokens),
   ),
   project: project,
   description: 'AI: repo',
@@ -179,66 +185,104 @@ void main() {
     });
   });
 
-  group('bucketBlocks', () {
+  group('bucketAmounts', () {
+    const hour = 3600.0;
+
     test('keeps an empty bucket so a gap stays visible', () {
       final period = periodFor(PeriodKind.thisWeek, now: now);
-      final totals = bucketBlocks([block('2026-09-14', project: 'A - a')], period);
+      final totals = bucketAmounts(
+        [block('2026-09-14', project: 'A - a')],
+        period,
+        secondsWorked,
+      );
 
       expect(totals, hasLength(7));
-      expect(totals[DateTime(2026, 9, 14)], {'A - a': const Duration(hours: 1)});
+      expect(totals[DateTime(2026, 9, 14)], {'A - a': hour});
       expect(totals[DateTime(2026, 9, 15)], isEmpty);
     });
 
     test('stacks the projects inside one bucket', () {
       final period = periodFor(PeriodKind.thisWeek, now: now);
-      final totals = bucketBlocks([
+      final totals = bucketAmounts([
         block('2026-09-14', project: 'A - a'),
         block('2026-09-14', project: 'B - b', hours: 2),
         block('2026-09-14'),
-      ], period);
+      ], period, secondsWorked);
 
       expect(totals[DateTime(2026, 9, 14)], {
-        'A - a': const Duration(hours: 1),
-        'B - b': const Duration(hours: 2),
-        unmappedLabel: const Duration(hours: 1),
+        'A - a': hour,
+        'B - b': 2 * hour,
+        unmappedLabel: hour,
       });
+    });
+
+    test('measures tokens as readily as time', () {
+      final period = periodFor(PeriodKind.thisWeek, now: now);
+      final totals = bucketAmounts([
+        block('2026-09-14', project: 'A - a', tokens: 500),
+        block('2026-09-14', project: 'A - a', tokens: 250),
+      ], period, tokensUsed);
+
+      expect(totals[DateTime(2026, 9, 14)], {'A - a': 750.0});
+      expect(rowTotal(totals[DateTime(2026, 9, 14)]!), 750);
+      expect(rowTotal(const {}), 0);
     });
 
     test('groups by week and by month for longer windows', () {
       final quarter = periodFor(PeriodKind.thisQuarter, now: now);
-      final weeks = bucketBlocks([
+      final weeks = bucketAmounts([
         block('2026-09-14', project: 'A - a'),
         block('2026-09-16', project: 'A - a'),
-      ], quarter);
-      expect(weeks[DateTime(2026, 9, 14)], {'A - a': const Duration(hours: 2)});
+      ], quarter, secondsWorked);
+      expect(weeks[DateTime(2026, 9, 14)], {'A - a': 2 * hour});
 
       final year = periodFor(PeriodKind.thisYear, now: now);
-      final months = bucketBlocks([
+      final months = bucketAmounts([
         block('2026-09-14', project: 'A - a'),
         block('2026-09-30', project: 'A - a'),
-      ], year);
+      ], year, secondsWorked);
       expect(months, hasLength(12));
-      expect(months[DateTime(2026, 9)], {'A - a': const Duration(hours: 2)});
+      expect(months[DateTime(2026, 9)], {'A - a': 2 * hour});
     });
 
     test('leaves out what falls outside the window', () {
       final period = periodFor(PeriodKind.today, now: now);
-      final totals = bucketBlocks([block('2026-09-15', project: 'A - a')], period);
+      final totals = bucketAmounts(
+        [block('2026-09-15', project: 'A - a')],
+        period,
+        secondsWorked,
+      );
 
-      expect(bucketTotal(totals.values.single), Duration.zero);
+      expect(rowTotal(totals.values.single), 0);
     });
   });
 
   group('calendar', () {
     test('totals a day and names the project that owned it', () {
-      final totals = dailyTotals([
+      final blocks = [
         block('2026-09-14', project: 'A - a'),
         block('2026-09-14', project: 'B - b', hours: 3),
-      ]);
+      ];
 
-      expect(bucketTotal(totals[DateTime(2026, 9, 14)]!), const Duration(hours: 4));
-      expect(dominantProject(totals[DateTime(2026, 9, 14)]!), 'B - b');
+      // What the timesheet is written from, in hours.
+      expect(
+        bucketTotal(dailyTotals(blocks)[DateTime(2026, 9, 14)]!),
+        const Duration(hours: 4),
+      );
+      // And what the calendar shades by, in whatever it is measuring.
+      final amounts = dailyAmounts(blocks, secondsWorked);
+      expect(dominantProject(amounts[DateTime(2026, 9, 14)]!), 'B - b');
       expect(dominantProject(const {}), isNull);
+    });
+
+    test('the same days measured in tokens', () {
+      final totals = dailyAmounts([
+        block('2026-09-14', project: 'A - a', tokens: 900),
+        block('2026-09-15', project: 'A - a', tokens: 100),
+      ], tokensUsed);
+
+      expect(totals[DateTime(2026, 9, 14)], {'A - a': 900.0});
+      expect(totals[DateTime(2026, 9, 15)], {'A - a': 100.0});
     });
   });
 }

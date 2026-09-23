@@ -1,6 +1,7 @@
 import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:flutter/material.dart';
 
+import '../measures.dart';
 import '../state/app_state.dart';
 
 /// Time and tokens side by side, grouped however you want to read them.
@@ -76,7 +77,8 @@ class _BreakdownState extends State<Breakdown> {
               _by = chosen.first;
               // A calendar grouping reads in its own order until asked
               // otherwise; the rest read heaviest first.
-              _sort = chosen.first == Grouping.day ||
+              _sort =
+                  chosen.first == Grouping.day ||
                       chosen.first == Grouping.week ||
                       chosen.first == Grouping.month
                   ? _By.name
@@ -330,9 +332,3 @@ class _Row extends StatelessWidget {
 }
 
 /// `1.2M`, because a token count in full is unreadable at a glance.
-String compactCount(int count) {
-  if (count >= 1000000000) return '${(count / 1000000000).toStringAsFixed(1)}B';
-  if (count >= 1000000) return '${(count / 1000000).toStringAsFixed(1)}M';
-  if (count >= 1000) return '${(count / 1000).toStringAsFixed(1)}k';
-  return '$count';
-}

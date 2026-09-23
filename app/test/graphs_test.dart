@@ -1,8 +1,10 @@
 import 'dart:io';
 
 import 'package:aitracker/main.dart';
+import 'package:aitracker/src/measures.dart';
 import 'package:aitracker/src/state/app_state.dart';
 import 'package:aitracker/src/widgets/breakdown.dart';
+import 'package:aitracker/src/widgets/calendar_heatmap.dart';
 import 'package:aitracker/src/widgets/stacked_bars.dart';
 import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:flutter/gestures.dart';
@@ -53,6 +55,43 @@ void main() {
     await tester.pumpAndSettle();
     return pointer;
   }
+
+  testWidgets('the graphs draw time, tokens, or one chart of each', (
+    tester,
+  ) async {
+    await openGraphs(tester);
+
+    expect(state.measure, Measure.time);
+    expect(find.byType(StackedBars), findsOneWidget);
+    expect(find.byType(CalendarHeatmap), findsOneWidget);
+
+    await tester.tap(find.text('Tokens'));
+    await tester.pumpAndSettle();
+
+    expect(state.measure, Measure.tokens);
+    expect(find.byType(StackedBars), findsOneWidget);
+    // The axis is counted now, not clocked.
+    expect(find.text('Calendar'), findsOneWidget);
+
+    await tester.tap(find.text('Both'));
+    await tester.pumpAndSettle();
+
+    expect(state.measure, Measure.both);
+    expect(find.byType(StackedBars), findsNWidgets(2));
+    await scrollTo(tester, find.text('Calendar, time'));
+    await scrollTo(tester, find.text('Calendar, tokens'));
+  });
+
+  testWidgets('asking for the measure it already shows changes nothing', (
+    tester,
+  ) async {
+    await openGraphs(tester);
+    state.setMeasure(Measure.time);
+    await tester.pumpAndSettle();
+
+    expect(state.measure, Measure.time);
+    expect(find.byType(StackedBars), findsOneWidget);
+  });
 
   testWidgets('hovering a bar names what went into it', (tester) async {
     await openGraphs(tester);

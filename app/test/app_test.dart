@@ -4,6 +4,7 @@ import 'package:aitracker/main.dart';
 import 'package:aitracker/src/state/app_state.dart';
 import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -321,6 +322,50 @@ void main() {
     expect(state.period.days, 1);
     // And it lands back on the hours, which is where the detail is.
     expect(find.text('Search the description, project or folder'), findsWidgets);
+
+    // One press of back, and the graph the day was clicked in is on screen
+    // again with the window it had.
+    await tester.tap(find.byTooltip('Back  ⌘['));
+    await tester.pumpAndSettle();
+
+    expect(state.screen, Screen.graphs);
+    expect(state.periodKind, PeriodKind.thisMonth);
+  });
+
+  testWidgets('back and forward walk the screens, by button and by key', (
+    tester,
+  ) async {
+    final state = await pump(tester);
+
+    IconButton button(IconData icon) =>
+        tester.widget<IconButton>(find.widgetWithIcon(IconButton, icon));
+
+    expect(button(Icons.arrow_back).onPressed, isNull);
+
+    await tester.tap(find.text('Graphs'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+    expect(state.screen, Screen.settings);
+
+    await tester.tap(find.byTooltip('Back  ⌘['));
+    await tester.pumpAndSettle();
+    expect(state.screen, Screen.graphs);
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.meta);
+    await tester.sendKeyEvent(LogicalKeyboardKey.bracketLeft);
+    await tester.pumpAndSettle();
+    expect(state.screen, Screen.hours);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.bracketRight);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.meta);
+    await tester.pumpAndSettle();
+    expect(state.screen, Screen.graphs);
+
+    await tester.tap(find.byTooltip('Forward  ⌘]'));
+    await tester.pumpAndSettle();
+    expect(state.screen, Screen.settings);
+    expect(button(Icons.arrow_forward).onPressed, isNull);
   });
 
   testWidgets('the calendar lays a month out as a grid that fills the card', (

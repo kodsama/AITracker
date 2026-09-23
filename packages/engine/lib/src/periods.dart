@@ -242,50 +242,79 @@ Bucket bucketFor(Period period) {
   return Bucket.month;
 }
 
-/// Time per bucket per project, oldest bucket first.
+/// How much of a measure a block is worth.
+typedef BlockAmount = double Function(TrackedBlock block);
+
+/// A block as seconds of work.
+double secondsWorked(TrackedBlock block) =>
+    block.block.duration.inSeconds.toDouble();
+
+/// A block as tokens, everything that passed through it, cache included.
+double tokensUsed(TrackedBlock block) => block.block.tokens.total.toDouble();
+
+/// How much of [amount] per bucket per project, oldest bucket first.
 ///
 /// Every bucket in the period is present even when nothing was worked, so a
 /// chart shows the gaps instead of closing them up.
-Map<DateTime, Map<String, Duration>> bucketBlocks(
+Map<DateTime, Map<String, double>> bucketAmounts(
   Iterable<TrackedBlock> blocks,
-  Period period, {
+  Period period,
+  BlockAmount amount, {
   Bucket? bucket,
 }) {
   final width = bucket ?? bucketFor(period);
-  final totals = <DateTime, Map<String, Duration>>{};
+  final totals = <DateTime, Map<String, double>>{};
   for (var at = _bucketStart(period.start, width);
       at.isBefore(period.end);
       at = _nextBucket(at, width)) {
-    totals[at] = <String, Duration>{};
+    totals[at] = <String, double>{};
   }
   for (final block in blocks) {
     if (!period.contains(block.block.start)) continue;
     final at = _bucketStart(block.block.start, width);
-    final row = totals.putIfAbsent(at, () => <String, Duration>{});
+    final row = totals.putIfAbsent(at, () => <String, double>{});
     final name = block.project ?? unmappedLabel;
-    row[name] = (row[name] ?? Duration.zero) + block.block.duration;
+    row[name] = (row[name] ?? 0) + amount(block);
   }
   return totals;
 }
 
-/// Time per day per project, for the calendar.
-Map<DateTime, Map<String, Duration>> dailyTotals(Iterable<TrackedBlock> blocks) {
-  final totals = <DateTime, Map<String, Duration>>{};
+/// How much of [amount] per day per project, for the calendar.
+Map<DateTime, Map<String, double>> dailyAmounts(
+  Iterable<TrackedBlock> blocks,
+  BlockAmount amount,
+) {
+  final totals = <DateTime, Map<String, double>>{};
   for (final block in blocks) {
-    final row = totals.putIfAbsent(block.day, () => <String, Duration>{});
+    final row = totals.putIfAbsent(block.day, () => <String, double>{});
     final name = block.project ?? unmappedLabel;
-    row[name] = (row[name] ?? Duration.zero) + block.block.duration;
+    row[name] = (row[name] ?? 0) + amount(block);
   }
   return totals;
 }
+
+/// Everything in a row added up.
+double rowTotal(Map<String, double> row) =>
+    row.values.fold(0, (sum, value) => sum + value);
+
+/// Time per day per project, which is what a timesheet is written from.
+Map<DateTime, Map<String, Duration>> dailyTotals(
+  Iterable<TrackedBlock> blocks,
+) => {
+  for (final day in dailyAmounts(blocks, secondsWorked).entries)
+    day.key: {
+      for (final project in day.value.entries)
+        project.key: Duration(seconds: project.value.round()),
+    },
+};
 
 /// What a block with no project is called in a chart.
 const String unmappedLabel = 'Unmapped';
 
 /// The project with the most time in [row], null when it is empty.
-String? dominantProject(Map<String, Duration> row) {
+String? dominantProject(Map<String, double> row) {
   String? best;
-  var most = Duration.zero;
+  var most = 0.0;
   for (final entry in row.entries) {
     if (entry.value <= most) continue;
     most = entry.value;

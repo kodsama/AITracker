@@ -1,14 +1,18 @@
 import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:flutter/material.dart';
 
+import '../measures.dart';
 import '../state/app_state.dart';
 import '../widgets/breakdown.dart';
 import '../widgets/calendar_heatmap.dart';
 import '../widgets/period_picker.dart';
 import '../widgets/stacked_bars.dart';
 
-/// The same hours, drawn: stacked bars over the period, then a calendar of the
+/// The same work, drawn: stacked bars over the period, then a calendar of the
 /// days themselves.
+///
+/// Time and tokens are quantities of wildly different size, so asking for both
+/// gives a chart of each rather than two scales on one axis.
 class GraphsScreen extends StatelessWidget {
   /// Creates the screen.
   const GraphsScreen({required this.state, required this.onOpenDay, super.key});
@@ -46,20 +50,18 @@ class GraphsScreen extends StatelessWidget {
         ? otherSeriesColor(context)
         : state.colorFor(project, brightness);
 
-    Map<DateTime, Map<String, Duration>> fold(
-      Map<DateTime, Map<String, Duration>> source,
+    Map<DateTime, Map<String, double>> fold(
+      Map<DateTime, Map<String, double>> source,
     ) => {
       for (final entry in source.entries)
         entry.key: {
           for (final project in entry.value.entries)
             slot(project.key): (entry.value.entries
                 .where((e) => slot(e.key) == slot(project.key))
-                .fold(Duration.zero, (sum, e) => sum + e.value)),
+                .fold<double>(0, (sum, e) => sum + e.value)),
         },
     };
 
-    final buckets = fold(bucketBlocks(blocks, period));
-    final calendar = fold(dailyTotals(blocks));
     final series = [...charted, if (folded) otherLabel];
 
     return ListView(
@@ -83,7 +85,24 @@ class GraphsScreen extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 16),
-        PeriodPicker(state: state),
+        Wrap(
+          spacing: 16,
+          runSpacing: 12,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            PeriodPicker(state: state),
+            SegmentedButton<Measure>(
+              showSelectedIcon: false,
+              style: const ButtonStyle(visualDensity: VisualDensity.compact),
+              segments: [
+                for (final measure in Measure.values)
+                  ButtonSegment(value: measure, label: Text(measure.label)),
+              ],
+              selected: {state.measure},
+              onSelectionChanged: (chosen) => state.setMeasure(chosen.first),
+            ),
+          ],
+        ),
         const SizedBox(height: 24),
 
         if (series.isEmpty)
@@ -101,20 +120,26 @@ class GraphsScreen extends StatelessWidget {
         else ...[
           _Legend(series: series, colourOf: colourOf, totals: totals, slot: slot),
           const SizedBox(height: 16),
-          _Panel(
-            title: switch (bucketFor(period)) {
-              Bucket.day => 'By day',
-              Bucket.week => 'By week',
-              Bucket.month => 'By month',
-            },
-            child: StackedBars(
-              buckets: buckets,
-              width: bucketFor(period),
-              series: series,
-              colorOf: colourOf,
+          for (final amount in state.measure.amounts) ...[
+            _Panel(
+              title: switch (bucketFor(period)) {
+                Bucket.day => 'By day',
+                Bucket.week => 'By week',
+                Bucket.month => 'By month',
+              },
+              subtitle: state.measure == Measure.both
+                  ? amount.label.toLowerCase()
+                  : null,
+              child: StackedBars(
+                buckets: fold(bucketAmounts(blocks, period, amount.of)),
+                width: bucketFor(period),
+                series: series,
+                colorOf: colourOf,
+                amount: amount,
+              ),
             ),
-          ),
-          const SizedBox(height: 20),
+            const SizedBox(height: 20),
+          ],
           _Panel(
             title: 'Breakdown',
             subtitle: 'Time and tokens together, grouped how you like and '
@@ -122,17 +147,23 @@ class GraphsScreen extends StatelessWidget {
             child: Breakdown(state: state),
           ),
           const SizedBox(height: 20),
-          _Panel(
-            title: 'Calendar',
-            subtitle: 'Each day in the colour of the project that took most of '
-                'it, darker the longer it ran.',
-            child: CalendarHeatmap(
-              days: calendar,
-              period: period,
-              colorOf: colourOf,
-              onDayTapped: onOpenDay,
+          for (final amount in state.measure.amounts) ...[
+            _Panel(
+              title: state.measure == Measure.both
+                  ? 'Calendar, ${amount.label.toLowerCase()}'
+                  : 'Calendar',
+              subtitle: 'Each day in the colour of the project that took most '
+                  'of it, darker the more there was.',
+              child: CalendarHeatmap(
+                days: fold(dailyAmounts(blocks, amount.of)),
+                period: period,
+                colorOf: colourOf,
+                amount: amount,
+                onDayTapped: onOpenDay,
+              ),
             ),
-          ),
+            const SizedBox(height: 20),
+          ],
         ],
       ],
     );

@@ -213,6 +213,26 @@ void main() {
     expect(left.single.block.start, busy.end);
   });
 
+  test('a measure is a function a caller can hold', () {
+    const BlockAmount amount = tokensUsed;
+
+    expect(
+      amount(
+        TrackedBlock(
+          block: WorkBlock(
+            directory: '/repo',
+            start: DateTime(2026, 9, 1, 9),
+            end: DateTime(2026, 9, 1, 10),
+            tokens: const TokenUsage(input: 40, output: 2),
+          ),
+          project: 'A - x',
+          description: 'AI: repo',
+        ),
+      ),
+      42,
+    );
+  });
+
   test('a log line has a level', () {
     expect(LogLevel.values, hasLength(4));
     expect(LogLevel.warn.name, 'warn');

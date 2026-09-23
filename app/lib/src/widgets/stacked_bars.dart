@@ -4,11 +4,13 @@ import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:flutter/foundation.dart' show clampDouble;
 import 'package:flutter/material.dart';
 
-/// Hours per bucket, stacked by project.
+import '../measures.dart';
+
+/// One measure per bucket, stacked by project.
 ///
-/// One axis, one measure: bar height is time, and the segments inside a bar are
-/// what that time went to. Empty buckets stay in place so a quiet week reads as
-/// quiet rather than disappearing.
+/// One axis, one measure: bar height is hours or tokens, never both, and the
+/// segments inside a bar are what went to each project. Empty buckets stay in
+/// place so a quiet week reads as quiet rather than disappearing.
 class StackedBars extends StatefulWidget {
   /// Creates the chart.
   const StackedBars({
@@ -16,11 +18,15 @@ class StackedBars extends StatefulWidget {
     required this.width,
     required this.series,
     required this.colorOf,
+    required this.amount,
     super.key,
   });
 
-  /// Bucket start to project to time, oldest first.
-  final Map<DateTime, Map<String, Duration>> buckets;
+  /// Bucket start to project to however much, oldest first.
+  final Map<DateTime, Map<String, double>> buckets;
+
+  /// What the height means, and how it reads.
+  final Amount amount;
 
   /// How wide one bar is, which decides the x labels.
   final Bucket width;
@@ -64,6 +70,7 @@ class _StackedBarsState extends State<StackedBars> {
                       series: widget.series,
                       colorOf: widget.colorOf,
                       bucket: widget.width,
+                      amount: widget.amount,
                       hovered: _hovered,
                       surface: theme.colorScheme.surface,
                       grid: theme.colorScheme.outlineVariant.withValues(
@@ -81,6 +88,7 @@ class _StackedBarsState extends State<StackedBars> {
                     day: keys[_hovered!],
                     row: widget.buckets[keys[_hovered!]]!,
                     bucket: widget.width,
+                    amount: widget.amount,
                     colorOf: widget.colorOf,
                   ),
               ],
@@ -123,6 +131,7 @@ class _BarsPainter extends CustomPainter {
     required this.series,
     required this.colorOf,
     required this.bucket,
+    required this.amount,
     required this.hovered,
     required this.surface,
     required this.grid,
@@ -130,10 +139,11 @@ class _BarsPainter extends CustomPainter {
     required this.textDirection,
   });
 
-  final Map<DateTime, Map<String, Duration>> buckets;
+  final Map<DateTime, Map<String, double>> buckets;
   final List<String> series;
   final Color Function(String) colorOf;
   final Bucket bucket;
+  final Amount amount;
   final int? hovered;
   final Color surface;
   final Color grid;
@@ -145,23 +155,20 @@ class _BarsPainter extends CustomPainter {
     final keys = buckets.keys.toList();
     final geometry = _Geometry(size.width, size.height, keys.length);
     final plotHeight = size.height - _Geometry.bottom - _Geometry.top;
-    final maxHours = _niceMax(
-      buckets.values.fold<double>(
-        0,
-        (most, row) => math.max(most, bucketTotal(row).inMinutes / 60),
-      ),
+    final ceiling = amount.ceiling(
+      buckets.values.fold<double>(0, (most, row) => math.max(most, rowTotal(row))),
     );
 
     final line = Paint()
       ..color = grid
       ..strokeWidth = 1;
     for (var tick = 0; tick <= 4; tick++) {
-      final value = maxHours * tick / 4;
+      final value = ceiling * tick / 4;
       final y = _Geometry.top + plotHeight * (1 - tick / 4);
       canvas.drawLine(Offset(_Geometry.left, y), Offset(size.width, y), line);
       _label(
         canvas,
-        value >= 10 ? '${value.round()}h' : '${value.toStringAsFixed(1)}h',
+        amount.tick(value),
         Offset(_Geometry.left - 8, y),
         align: TextAlign.right,
         anchorRight: true,
@@ -176,9 +183,9 @@ class _BarsPainter extends CustomPainter {
       final isHovered = hovered == i;
 
       for (final project in series) {
-        final time = row[project];
-        if (time == null || time == Duration.zero) continue;
-        final height = plotHeight * (time.inMinutes / 60) / maxHours;
+        final value = row[project];
+        if (value == null || value <= 0) continue;
+        final height = plotHeight * value / ceiling;
         if (height <= 0) continue;
         final top = y - height;
         final rect = RRect.fromRectAndCorners(
@@ -211,14 +218,6 @@ class _BarsPainter extends CustomPainter {
         );
       }
     }
-  }
-
-  double _niceMax(double hours) {
-    if (hours <= 0) return 1;
-    for (final step in [1, 2, 4, 6, 8, 12, 16, 24, 40, 60, 100, 200, 400]) {
-      if (hours <= step) return step.toDouble();
-    }
-    return (hours / 100).ceil() * 100;
   }
 
   String _xLabel(DateTime at) => switch (bucket) {
@@ -255,7 +254,10 @@ class _BarsPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_BarsPainter old) =>
-      old.buckets != buckets || old.hovered != hovered || old.ink != ink;
+      old.buckets != buckets ||
+      old.hovered != hovered ||
+      old.amount != amount ||
+      old.ink != ink;
 }
 
 class _Tooltip extends StatelessWidget {
@@ -265,14 +267,16 @@ class _Tooltip extends StatelessWidget {
     required this.day,
     required this.row,
     required this.bucket,
+    required this.amount,
     required this.colorOf,
   });
 
   final _Geometry geometry;
   final int index;
   final DateTime day;
-  final Map<String, Duration> row;
+  final Map<String, double> row;
   final Bucket bucket;
+  final Amount amount;
   final Color Function(String) colorOf;
 
   @override
@@ -329,7 +333,7 @@ class _Tooltip extends StatelessWidget {
                         ),
                         const SizedBox(width: 10),
                         Text(
-                          formatDuration(entry.value),
+                          amount.format(entry.value),
                           style: theme.textTheme.bodySmall,
                         ),
                       ],
@@ -338,7 +342,7 @@ class _Tooltip extends StatelessWidget {
               if (entries.length > 1) ...[
                 const SizedBox(height: 4),
                 Text(
-                  'Total ${formatDuration(bucketTotal(row))}',
+                  'Total ${amount.format(rowTotal(row))}',
                   style: theme.textTheme.labelSmall,
                 ),
               ],

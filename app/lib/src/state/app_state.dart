@@ -5,7 +5,74 @@ import 'package:aitracker_mcp/aitracker_mcp.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show Brightness, Color;
 
+import '../measures.dart';
 import '../theme.dart';
+
+/// A screen in the window.
+enum Screen {
+  /// The blocks themselves, and the bulk edits.
+  hours('Hours'),
+
+  /// The same work drawn.
+  graphs('Graphs'),
+
+  /// Rules, mappings and colours.
+  projects('Projects'),
+
+  /// Everything configurable.
+  settings('Settings');
+
+  const Screen(this.label);
+
+  /// What the rail calls it.
+  final String label;
+}
+
+/// Somewhere you have been: the screen and everything that decides what it
+/// shows.
+///
+/// Held as a value so that going back is restoring one of these rather than
+/// undoing a list of steps.
+class _Place {
+  const _Place({
+    required this.screen,
+    required this.periodKind,
+    required this.customStart,
+    required this.customEnd,
+    required this.periodStep,
+    required this.mode,
+    required this.measure,
+    required this.filter,
+    required this.query,
+  });
+
+  final Screen screen;
+  final PeriodKind periodKind;
+  final DateTime? customStart;
+  final DateTime? customEnd;
+  final int periodStep;
+  final CountMode mode;
+  final Measure measure;
+  final BlockFilter filter;
+  final String query;
+
+  /// Whether this is the same place, search box aside.
+  ///
+  /// Typing is not navigation: a browser does not keep a page per letter, and
+  /// neither does this.
+  bool isSamePlace(_Place other) =>
+      screen == other.screen &&
+      periodKind == other.periodKind &&
+      customStart == other.customStart &&
+      customEnd == other.customEnd &&
+      periodStep == other.periodStep &&
+      mode == other.mode &&
+      measure == other.measure &&
+      filter == other.filter;
+
+  /// Whether nothing at all has changed.
+  bool matches(_Place other) => isSamePlace(other) && query == other.query;
+}
 
 /// Which blocks the list shows.
 enum BlockFilter {
@@ -94,6 +161,10 @@ class AppState extends ChangeNotifier {
   DateTime? _customEnd;
   int _periodStep = 0;
   CountMode _mode = CountMode.wallClock;
+  Measure _measure = Measure.time;
+  Screen _screen = Screen.hours;
+  final List<_Place> _back = [];
+  final List<_Place> _forward = [];
   BlockFilter _filter = BlockFilter.all;
   String _query = '';
   bool _loading = true;
@@ -151,6 +222,33 @@ class AppState extends ChangeNotifier {
 
   /// How overlapping sessions are counted.
   CountMode get mode => _mode;
+
+  /// What the graphs are drawing: time, tokens, or one chart of each.
+  Measure get measure => _measure;
+
+  /// Which screen is open.
+  Screen get screen => _screen;
+
+  /// Whether there is anywhere to go back to.
+  bool get canGoBack => _back.isNotEmpty;
+
+  /// Whether back has been used and not undone.
+  bool get canGoForward => _forward.isNotEmpty;
+
+  /// How far back it remembers.
+  static const int historyDepth = 50;
+
+  _Place get _here => _Place(
+    screen: _screen,
+    periodKind: _periodKind,
+    customStart: _customStart,
+    customEnd: _customEnd,
+    periodStep: _periodStep,
+    mode: _mode,
+    measure: _measure,
+    filter: _filter,
+    query: _query,
+  );
 
   /// What the search box holds.
   String get query => _query;
@@ -370,7 +468,7 @@ class AppState extends ChangeNotifier {
     PeriodKind kind, {
     DateTime? start,
     DateTime? end,
-  }) async {
+  }) => _wentAsync(() async {
     _periodKind = kind;
     _periodStep = 0;
     if (kind == PeriodKind.custom) {
@@ -378,45 +476,134 @@ class AppState extends ChangeNotifier {
       _customEnd = end ?? _customEnd;
     }
     await refresh();
-  }
+  });
 
   /// Steps the window back or forward by its own length.
-  Future<void> stepPeriod(int delta) async {
+  Future<void> stepPeriod(int delta) => _wentAsync(() async {
     _periodStep += delta;
     await refresh();
+  });
+
+  /// Opens a screen, remembering the one it left.
+  void goTo(Screen screen) {
+    if (screen == _screen) return;
+    _went(() => _screen = screen);
+  }
+
+  /// Opens a day, which is a window of one and the list that shows it.
+  ///
+  /// One move rather than two, so one press of back returns to the graph the
+  /// day was clicked in rather than to a half-changed view.
+  Future<void> openDay(DateTime day) => _wentAsync(() async {
+    _screen = Screen.hours;
+    _periodKind = PeriodKind.custom;
+    _periodStep = 0;
+    _customStart = day;
+    _customEnd = day;
+    await refresh();
+  });
+
+  /// Goes back to where it was.
+  Future<void> goBack() => _step(_back, _forward);
+
+  /// Undoes a back.
+  Future<void> goForward() => _step(_forward, _back);
+
+  Future<void> _step(List<_Place> from, List<_Place> to) async {
+    if (from.isEmpty) return;
+    to.add(_here);
+    await _restore(from.removeLast());
+    notifyListeners();
+  }
+
+  /// Runs a move and remembers where it started.
+  void _went(VoidCallback change) {
+    final from = _here;
+    change();
+    _remember(from, _here);
+    notifyListeners();
+  }
+
+  Future<void> _wentAsync(Future<void> Function() change) async {
+    final from = _here;
+    await change();
+    _remember(from, _here);
+    notifyListeners();
+  }
+
+  void _remember(_Place from, _Place to) {
+    if (from.matches(to)) return;
+    // A place already on the stack that differs only by what is typed in the
+    // search box is the same place, and one entry is enough for it.
+    final typing =
+        _back.isNotEmpty && _back.last.isSamePlace(from) && from.isSamePlace(to);
+    if (!typing) {
+      _back.add(from);
+      if (_back.length > historyDepth) _back.removeAt(0);
+    }
+    _forward.clear();
+  }
+
+  Future<void> _restore(_Place place) async {
+    final rescan =
+        place.periodKind != _periodKind ||
+        place.customStart != _customStart ||
+        place.customEnd != _customEnd ||
+        place.periodStep != _periodStep;
+    _screen = place.screen;
+    _periodKind = place.periodKind;
+    _customStart = place.customStart;
+    _customEnd = place.customEnd;
+    _periodStep = place.periodStep;
+    _measure = place.measure;
+    _filter = place.filter;
+    _query = place.query;
+    // Directly, not through the setter: restoring a place is not a move of its
+    // own, and recording it would bury the one being restored.
+    if (place.mode != _mode) _applyMode(place.mode);
+    if (rescan) {
+      await refresh();
+    }
+    _dropUnseen();
+  }
+
+  /// Switches what the graphs draw.
+  void setMeasure(Measure measure) {
+    if (measure == _measure) return;
+    _went(() => _measure = measure);
   }
 
   /// Switches how overlapping sessions are counted.
   ///
   /// Both readings come out of one scan, so this is a swap rather than a
   /// reason to go back to disk.
-  void setMode(CountMode mode) {
+  void setMode(CountMode mode) => _went(() => _applyMode(mode));
+
+  void _applyMode(CountMode mode) {
     _mode = mode;
     _blocks = (mode == CountMode.perProject ? _perProject : _exclusive)
         .reversed
         .toList();
     _selected.removeWhere((key) => !_blocks.any((b) => b.key == key));
-    notifyListeners();
   }
 
   /// Filters the list.
-  void setQuery(String query) {
+  void setQuery(String query) => _went(() {
     _query = query;
-    _dropUnseenSelection();
-  }
+    _dropUnseen();
+  });
 
   /// Narrows the list to mapped, unmapped or everything.
-  void setFilter(BlockFilter filter) {
+  void setFilter(BlockFilter filter) => _went(() {
     _filter = filter;
-    _dropUnseenSelection();
-  }
+    _dropUnseen();
+  });
 
   /// A block that has scrolled out of the list cannot stay selected, or a bulk
   /// edit would reach rows nobody can see.
-  void _dropUnseenSelection() {
+  void _dropUnseen() {
     final shown = blocks.map((b) => b.key).toSet();
     _selected.removeWhere((key) => !shown.contains(key));
-    notifyListeners();
   }
 
   /// Selects or deselects one block.

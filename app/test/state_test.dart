@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:aitracker/src/measures.dart';
 import 'package:aitracker/src/state/app_state.dart';
 import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:flutter/material.dart' show Brightness, Color, Colors;
@@ -337,5 +338,152 @@ void main() {
 
     expect(state.lastAutomatic.single.sink, 'tabular');
     expect(File('${fixture.root.path}/auto.csv').existsSync(), isTrue);
+  });
+
+  group('going back', () {
+    test('a screen is remembered, and back returns to it', () async {
+      final state = fixture.state();
+      addTearDown(state.dispose);
+      await state.load();
+
+      expect(state.canGoBack, isFalse);
+      expect(state.canGoForward, isFalse);
+
+      state.goTo(Screen.graphs);
+      expect(state.screen, Screen.graphs);
+      expect(state.canGoBack, isTrue);
+
+      await state.goBack();
+      expect(state.screen, Screen.hours);
+      expect(state.canGoBack, isFalse);
+      expect(state.canGoForward, isTrue);
+
+      await state.goForward();
+      expect(state.screen, Screen.graphs);
+      expect(state.canGoForward, isFalse);
+    });
+
+    test('opening the same screen again is not a move', () async {
+      final state = fixture.state();
+      addTearDown(state.dispose);
+      await state.load();
+
+      state.goTo(Screen.hours);
+
+      expect(state.canGoBack, isFalse);
+    });
+
+    test('a day opened from the graphs is one move back to the graphs', () async {
+      final state = fixture.state();
+      addTearDown(state.dispose);
+      await state.load();
+      state.goTo(Screen.graphs);
+      final was = state.period;
+
+      await state.openDay(DateTime(2026, 9, 14));
+
+      expect(state.screen, Screen.hours);
+      expect(state.period.start, DateTime(2026, 9, 14));
+
+      await state.goBack();
+
+      expect(state.screen, Screen.graphs);
+      expect(state.period.start, was.start);
+      expect(state.period.end, was.end);
+    });
+
+    test('the window, the filter, the mode and the measure all come back',
+        () async {
+      final state = fixture.state();
+      addTearDown(state.dispose);
+      await state.load();
+
+      await state.setPeriod(PeriodKind.thisWeek);
+      state.setFilter(BlockFilter.unmapped);
+      state.setMode(CountMode.perProject);
+      state.setMeasure(Measure.tokens);
+
+      await state.goBack();
+      expect(state.measure, Measure.time);
+      await state.goBack();
+      expect(state.mode, CountMode.wallClock);
+      await state.goBack();
+      expect(state.filter, BlockFilter.all);
+      await state.goBack();
+      expect(state.periodKind, PeriodKind.thisMonth);
+      expect(state.canGoBack, isFalse);
+    });
+
+    test('stepping the window is a move of its own', () async {
+      final state = fixture.state();
+      addTearDown(state.dispose);
+      await state.load();
+
+      await state.stepPeriod(-1);
+      expect(state.periodStep, -1);
+
+      await state.goBack();
+
+      expect(state.periodStep, 0);
+    });
+
+    test('typing leaves one entry, not one per letter', () async {
+      final state = fixture.state();
+      addTearDown(state.dispose);
+      await state.load();
+
+      for (final query in ['u', 'un', 'unm', 'unmapped']) {
+        state.setQuery(query);
+      }
+      expect(state.query, 'unmapped');
+
+      await state.goBack();
+
+      expect(state.query, '');
+      expect(state.canGoBack, isFalse);
+    });
+
+    test('a new move throws away what forward was holding', () async {
+      final state = fixture.state();
+      addTearDown(state.dispose);
+      await state.load();
+
+      state.goTo(Screen.graphs);
+      await state.goBack();
+      expect(state.canGoForward, isTrue);
+
+      state.goTo(Screen.settings);
+
+      expect(state.canGoForward, isFalse);
+    });
+
+    test('back and forward at the ends do nothing', () async {
+      final state = fixture.state();
+      addTearDown(state.dispose);
+      await state.load();
+
+      await state.goBack();
+      await state.goForward();
+
+      expect(state.screen, Screen.hours);
+      expect(state.canGoBack, isFalse);
+    });
+
+    test('it remembers a stated number of moves and no more', () async {
+      final state = fixture.state();
+      addTearDown(state.dispose);
+      await state.load();
+
+      for (var i = 0; i <= AppState.historyDepth + 10; i++) {
+        state.goTo(i.isEven ? Screen.graphs : Screen.hours);
+      }
+      var steps = 0;
+      while (state.canGoBack) {
+        await state.goBack();
+        steps++;
+      }
+
+      expect(steps, AppState.historyDepth);
+    });
   });
 }

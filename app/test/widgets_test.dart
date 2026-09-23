@@ -1,4 +1,5 @@
 import 'package:aitracker/main.dart';
+import 'package:aitracker/src/measures.dart';
 import 'package:aitracker/src/screens/graphs_screen.dart';
 import 'package:aitracker/src/screens/hours_screen.dart';
 import 'package:aitracker/src/screens/rules_screen.dart';
@@ -123,10 +124,11 @@ void main() {
     await show(
       tester,
       StackedBars(
-        buckets: bucketBlocks(state.blocks, period),
+        buckets: bucketAmounts(state.blocks, period, secondsWorked),
         width: bucketFor(period),
         series: const ['Byte Buddies - idbuddy', unmappedLabel],
         colorOf: (project) => state.colorFor(project, Brightness.light),
+        amount: Amount.time,
       ),
     );
 
@@ -141,9 +143,10 @@ void main() {
     await show(
       tester,
       CalendarHeatmap(
-        days: dailyTotals(state.blocks),
+        days: dailyAmounts(state.blocks, secondsWorked),
         period: state.period,
         colorOf: (project) => state.colorFor(project, Brightness.dark),
+        amount: Amount.time,
         onDayTapped: (day) => opened = day,
       ),
     );
