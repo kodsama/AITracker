@@ -379,6 +379,122 @@ void main() {
     expect(reopened.summary().events, 1);
   });
 
+  test('a cached day gives back the models it was built with', () {
+    write('a.jsonl', [
+      '{"timestamp":"2026-09-01T09:00:00.000Z","cwd":"/repo",'
+          '"message":{"model":"claude-opus-5"}}',
+      '{"timestamp":"2026-09-01T09:30:00.000Z","cwd":"/repo",'
+          '"message":{"model":"claude-sonnet-5"}}',
+    ]);
+    ingest();
+
+    List<WorkBlock> read() => store.blocks(
+      from: DateTime(2026, 9, 1),
+      to: DateTime(2026, 9, 2),
+      idleGap: const Duration(hours: 1),
+      minBlock: Duration.zero,
+    );
+
+    // Once computed, and once out of the cache the first call filled.
+    expect(read().single.models, {
+      'claude-opus-5': 1,
+      'claude-sonnet-5': 1,
+    });
+    expect(read().single.model, 'claude-opus-5');
+  });
+
+  group('moving to the schema that records the model', () {
+    /// An archive as the previous version wrote it: no model anywhere.
+    void writeSchemaOne(String path, {required String forFile}) {
+      final db = sqlite3.open(path);
+      db.execute('''
+        create table files (
+          id integer primary key autoincrement,
+          path text not null unique,
+          size integer not null,
+          modified integer not null,
+          offset integer not null,
+          head text not null,
+          format text not null,
+          directory text not null
+        );
+        create table events (
+          file_id integer not null,
+          at integer not null,
+          directory text not null,
+          session text not null,
+          input integer not null,
+          output integer not null,
+          cache_write integer not null,
+          cache_read integer not null
+        );
+        create table blocks (
+          params text not null, mode text not null, day integer not null,
+          directory text not null, start integer not null,
+          finish integer not null, sessions integer not null,
+          input integer not null, output integer not null,
+          cache_write integer not null, cache_read integer not null,
+          primary key (params, mode, day, directory, start)
+        );
+        create table days (
+          params text not null, mode text not null, day integer not null,
+          primary key (params, mode, day)
+        );
+      ''');
+      void hold(String path, int at, {required int offset}) {
+        db.execute(
+          'insert into files (path, size, modified, offset, head, format, '
+          "directory) values (?, 999, 999, ?, '{}', 'claudeCode', '/repo')",
+          [path, offset],
+        );
+        db.execute(
+          'insert into events values (?, ?, ?, ?, 0, 0, 0, 0)',
+          [db.lastInsertRowId, at, '/repo', 'old'],
+        );
+      }
+
+      hold(forFile, DateTime(2026, 9, 1, 9).millisecondsSinceEpoch, offset: 40);
+      hold('${temp.path}/pruned.jsonl',
+          DateTime(2026, 8, 1, 9).millisecondsSinceEpoch, offset: 40);
+      db.execute('pragma user_version = 1');
+      db.close();
+    }
+
+    test('a transcript still on disk is read again, one long gone is kept', () {
+      store.close();
+      final path = '${temp.path}/schema-one.db';
+      final kept = write('a.jsonl', [
+        '{"timestamp":"2026-09-01T09:00:00.000Z","cwd":"/repo",'
+            '"message":{"model":"claude-opus-5"}}',
+      ]);
+      writeSchemaOne(path, forFile: kept.path);
+
+      final upgraded = HistoryStore.open(path);
+      addTearDown(upgraded.close);
+
+      // The pruned transcript's event is still the only record of that day.
+      expect(upgraded.events(), hasLength(1));
+      expect(upgraded.events().single.time.month, 8);
+
+      // And the one still on disk is read again, with its model this time.
+      expect(upgraded.ingest(['${temp.path}/projects']), 1);
+      final models = upgraded.events().map((e) => e.model).toSet();
+      expect(models, {'', 'claude-opus-5'});
+      store = upgraded;
+    });
+
+    test('an archive already at the newest schema is left alone', () {
+      write('a.jsonl', [line('2026-09-01T09:00:00.000Z')]);
+      ingest();
+      store.close();
+
+      store = HistoryStore.open('${temp.path}/history.db');
+
+      expect(store.events(), hasLength(1));
+      expect(store.summary().files, 1);
+    });
+  });
+
   group('an editor database', () {
     /// Cursor's shape: a conversation naming its folder, and a row per turn.
     String cursorStore(List<String> times, {int touched = 0}) {

@@ -3,12 +3,17 @@ import 'dart:io';
 import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:test/test.dart';
 
-ActivityEvent event(String time, String directory, [String session = 's1']) =>
-    ActivityEvent(
-      time: DateTime.parse(time),
-      directory: directory,
-      sessionId: session,
-    );
+ActivityEvent event(
+  String time,
+  String directory, [
+  String session = 's1',
+  String model = '',
+]) => ActivityEvent(
+  time: DateTime.parse(time),
+  directory: directory,
+  sessionId: session,
+  model: model,
+);
 
 void main() {
   // A test run has no business writing to the user's log.
@@ -194,6 +199,22 @@ void main() {
       );
     });
 
+    test('the model that answered is read, and made-up turns credit none', () {
+      expect(
+        parseTranscriptLine(
+          '{"timestamp":"2026-09-01T09:00:00.000Z",'
+          '"message":{"model":"claude-opus-5"}}',
+          TranscriptFormat.claudeCode,
+          directory: '/repo',
+          session: 'file',
+        )!.model,
+        'claude-opus-5',
+      );
+      // Claude Code writes <synthetic> on the messages it makes up itself.
+      expect(modelIn('{"message":{"model":"<synthetic>"}}'), '');
+      expect(modelIn('{"timestamp":"x"}'), '');
+    });
+
     test('costs are read off the usage block, and only from it', () {
       expect(
         usageIn(
@@ -204,6 +225,112 @@ void main() {
         44763,
       );
       expect(usageIn('{"timestamp":"x"}').isEmpty, isTrue);
+    });
+  });
+
+  group('what a block is charged', () {
+    ActivityEvent spending(String time, int cost, [String directory = '/repo']) =>
+        ActivityEvent(
+          time: DateTime.parse(time),
+          directory: directory,
+          sessionId: 's',
+          tokens: TokenUsage(input: cost),
+        );
+
+    test('the exchange that closed a stretch is counted in it', () {
+      final blocks = buildBlocks([
+        spending('2026-09-01T09:00:00', 10),
+        spending('2026-09-01T09:30:00', 90),
+        // Far enough away to end the stretch, and to start none of its own.
+        spending('2026-09-01T19:00:00', 5),
+      ], idleGap: const Duration(hours: 1), minBlock: Duration.zero);
+
+      expect(blocks.single.tokens.total, 100);
+    });
+
+    test('a stretch over midnight is charged once, to the halves it became', () {
+      final blocks = buildBlocks([
+        spending('2026-09-01T23:30:00', 60),
+        spending('2026-09-02T00:30:00', 40),
+      ], idleGap: const Duration(hours: 2), minBlock: Duration.zero);
+
+      expect(blocks, hasLength(2));
+      expect(blocks.first.tokens.total, 60);
+      expect(blocks.last.tokens.total, 40);
+    });
+
+    test('what happened between two blocks is charged to neither', () {
+      final blocks = buildBlocks([
+        spending('2026-09-01T09:00:00', 10),
+        spending('2026-09-01T09:30:00', 10),
+        spending('2026-09-01T15:00:00', 999),
+        spending('2026-09-01T19:00:00', 10),
+        spending('2026-09-01T19:30:00', 10),
+      ], idleGap: const Duration(hours: 1), minBlock: Duration.zero);
+
+      expect(blocks, hasLength(2));
+      expect(blocks.fold<int>(0, (sum, b) => sum + b.tokens.total), 40);
+    });
+  });
+
+  group('models', () {
+    test('a block counts the turns each model took, and names the busiest', () {
+      final blocks = buildBlocks([
+        event('2026-09-01T09:00:00', '/repo', 's1', 'claude-opus-5'),
+        event('2026-09-01T09:10:00', '/repo', 's1', 'claude-sonnet-5'),
+        event('2026-09-01T09:20:00', '/repo', 's1', 'claude-opus-5'),
+        event('2026-09-01T09:30:00', '/repo', 's1'),
+      ], idleGap: const Duration(minutes: 15), minBlock: Duration.zero);
+
+      expect(blocks.single.models, {'claude-opus-5': 2, 'claude-sonnet-5': 1});
+      expect(blocks.single.model, 'claude-opus-5');
+    });
+
+    test('a block nobody recorded a model for names none', () {
+      final blocks = buildBlocks([
+        event('2026-09-01T09:00:00', '/repo'),
+        event('2026-09-01T09:10:00', '/repo'),
+      ], idleGap: const Duration(minutes: 15), minBlock: Duration.zero);
+
+      expect(blocks.single.models, isEmpty);
+      expect(blocks.single.model, '');
+    });
+
+    test('a glance absorbed into a longer stretch brings its models', () {
+      final blocks = buildBlocks([
+        event('2026-09-01T09:00:00', '/repo', 's1', 'claude-opus-5'),
+        event('2026-09-01T09:10:00', '/repo', 's1', 'claude-opus-5'),
+        event('2026-09-01T09:11:00', '/other', 's2', 'claude-fable-5'),
+        event('2026-09-01T09:12:00', '/repo', 's1', 'claude-sonnet-5'),
+        event('2026-09-01T09:40:00', '/repo', 's1', 'claude-sonnet-5'),
+      ], idleGap: const Duration(hours: 1), minBlock: const Duration(minutes: 5));
+
+      expect(blocks.single.models['claude-fable-5'], 1);
+      expect(blocks.single.model, 'claude-opus-5');
+      // And its sessions, which the block counts.
+      expect(blocks.single.sessions, 2);
+    });
+
+    test('what a glance spent is spent inside the block that swallowed it', () {
+      ActivityEvent spending(String time, String directory, int cost) =>
+          ActivityEvent(
+            time: DateTime.parse(time),
+            directory: directory,
+            sessionId: 's',
+            tokens: TokenUsage(input: cost),
+          );
+
+      final blocks = buildBlocks([
+        spending('2026-09-01T09:00:00', '/repo', 10),
+        spending('2026-09-01T09:10:00', '/repo', 10),
+        spending('2026-09-01T09:11:00', '/other', 500),
+        spending('2026-09-01T09:12:00', '/repo', 10),
+        spending('2026-09-01T09:40:00', '/repo', 10),
+      ], idleGap: const Duration(hours: 1), minBlock: const Duration(minutes: 5));
+
+      // The minute in the other repository is inside this block's hours, so
+      // its tokens are inside its totals.
+      expect(blocks.single.tokens.total, 540);
     });
   });
 

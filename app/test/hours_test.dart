@@ -338,4 +338,25 @@ void main() {
 
     expect(find.textContaining('Could not read the transcripts'), findsOneWidget);
   });
+
+  testWidgets('the models that answered are a figure of their own', (
+    tester,
+  ) async {
+    await openHours(tester);
+
+    expect(find.text('MODELS'), findsOneWidget);
+    // The vendor is not the news, so the prefix goes.
+    expect(find.text('opus-5'), findsOneWidget);
+    expect(
+      tester
+          .widget<Tooltip>(
+            find.ancestor(
+              of: find.text('MODELS'),
+              matching: find.byType(Tooltip),
+            ),
+          )
+          .message,
+      'claude-opus-5  50%\nclaude-sonnet-5  50%',
+    );
+  });
 }

@@ -60,6 +60,7 @@ class ActivityEvent {
     required this.directory,
     required this.sessionId,
     this.tokens = TokenUsage.zero,
+    this.model = '',
   });
 
   /// When it happened, in local time.
@@ -73,6 +74,9 @@ class ActivityEvent {
 
   /// Tokens this line reported, zero for the lines that report none.
   final TokenUsage tokens;
+
+  /// Which model answered, empty for the lines that do not say.
+  final String model;
 }
 
 /// A contiguous stretch of attention on one directory.
@@ -84,6 +88,7 @@ class WorkBlock {
     required this.end,
     this.sessions = 1,
     this.tokens = TokenUsage.zero,
+    this.models = const {},
   });
 
   /// Working directory the work happened in.
@@ -101,6 +106,25 @@ class WorkBlock {
   /// Tokens the exchanges inside it reported.
   final TokenUsage tokens;
 
+  /// Which models answered inside it, and how many turns each took.
+  ///
+  /// A block is a stretch of attention, not a conversation, and a stretch can
+  /// switch models halfway through; keeping the count means a window can say
+  /// which one did most of the work rather than only which ones appeared.
+  final Map<String, int> models;
+
+  /// The model that answered most, empty when none is recorded.
+  String get model {
+    var best = '';
+    var most = 0;
+    for (final entry in models.entries) {
+      if (entry.value <= most) continue;
+      most = entry.value;
+      best = entry.key;
+    }
+    return best;
+  }
+
   /// Wall-clock length.
   Duration get duration => end.difference(start);
 
@@ -111,12 +135,14 @@ class WorkBlock {
     DateTime? end,
     int? sessions,
     TokenUsage? tokens,
+    Map<String, int>? models,
   }) => WorkBlock(
     directory: directory ?? this.directory,
     start: start ?? this.start,
     end: end ?? this.end,
     sessions: sessions ?? this.sessions,
     tokens: tokens ?? this.tokens,
+    models: models ?? this.models,
   );
 
   @override
@@ -178,7 +204,18 @@ ActivityEvent? parseTranscriptLine(
     directory: directory,
     sessionId: extractString(line, '"conversationId":"') ?? session,
     tokens: usageIn(line),
+    model: modelIn(line),
   );
+}
+
+/// Which model answered, or empty when the line does not say.
+///
+/// Claude Code writes it on the assistant's turns, and `<synthetic>` on the
+/// messages it makes up itself, which no model wrote and none is credited for.
+String modelIn(String line) {
+  final model = extractString(line, '"model":"');
+  if (model == null || model.startsWith('<')) return '';
+  return model;
 }
 
 /// What the line says the exchange cost. Lines that carry no usage block, which
@@ -248,15 +285,11 @@ List<WorkBlock> buildBlocks(
         last.end == event.time) {
       last.end = sorted[i + 1].time;
       last.sessions.add(event.sessionId);
-      last.tokens += event.tokens;
     } else {
       spans.add(
-        _Span(event.directory, event.time, sorted[i + 1].time, event.sessionId)
-          ..tokens += event.tokens,
+        _Span(event.directory, event.time, sorted[i + 1].time, event.sessionId),
       );
     }
-    // The closing event of a stretch reports the exchange that ended it.
-    if (i == sorted.length - 2) spans.last.tokens += sorted[i + 1].tokens;
   }
 
   // A minute spent in another repository in the middle of an hour's work is a
@@ -272,9 +305,13 @@ List<WorkBlock> buildBlocks(
     if (previous >= 0 &&
         interrupted &&
         span.start.difference(merged[previous].end) <= idleGap) {
-      merged[previous].end = span.end;
-      merged[previous].sessions.addAll(span.sessions);
-      merged[previous].tokens += span.tokens;
+      // The glances in between are inside the stretch now, so what was spent
+      // in them is too: dropping them would leave the block's time covering
+      // exchanges its own totals had forgotten.
+      for (final glance in merged.sublist(previous + 1)) {
+        merged[previous].absorb(glance);
+      }
+      merged[previous].absorb(span);
       merged.removeRange(previous + 1, merged.length);
     } else {
       merged.add(span);
@@ -294,12 +331,39 @@ List<WorkBlock> buildBlocks(
         start: start,
         end: span.end,
         sessions: span.sessions.length,
-        tokens: span.tokens,
       ),
     );
     previousEnd = span.end;
   }
-  return _splitAtMidnight(blocks);
+  return _chargeTo(_splitAtMidnight(blocks), sorted);
+}
+
+/// Puts what each event cost into the block whose hours contain it.
+///
+/// Once the blocks exist rather than while they are being found: an exchange
+/// belongs to the stretch of attention it happened in, and a block that has
+/// been merged, trimmed or split at midnight is that stretch. Doing it as the
+/// spans were built lost the exchange that closed one and counted a block that
+/// crossed midnight twice.
+List<WorkBlock> _chargeTo(List<WorkBlock> blocks, List<ActivityEvent> sorted) {
+  if (blocks.isEmpty) return blocks;
+  final tokens = List.filled(blocks.length, TokenUsage.zero);
+  final models = List.generate(blocks.length, (_) => <String, int>{});
+  var at = 0;
+  for (final event in sorted) {
+    while (at < blocks.length && event.time.isAfter(blocks[at].end)) {
+      at++;
+    }
+    if (at >= blocks.length) break;
+    if (event.time.isBefore(blocks[at].start)) continue;
+    tokens[at] += event.tokens;
+    if (event.model.isEmpty) continue;
+    models[at][event.model] = (models[at][event.model] ?? 0) + 1;
+  }
+  return [
+    for (var i = 0; i < blocks.length; i++)
+      blocks[i].copyWith(tokens: tokens[i], models: models[i]),
+  ];
 }
 
 class _Span {
@@ -311,6 +375,23 @@ class _Span {
   DateTime end;
   final Set<String> sessions;
   TokenUsage tokens = TokenUsage.zero;
+  final Map<String, int> models = {};
+
+  void add(ActivityEvent event) {
+    tokens += event.tokens;
+    if (event.model.isNotEmpty) {
+      models[event.model] = (models[event.model] ?? 0) + 1;
+    }
+  }
+
+  void absorb(_Span other) {
+    end = other.end.isAfter(end) ? other.end : end;
+    sessions.addAll(other.sessions);
+    tokens += other.tokens;
+    for (final entry in other.models.entries) {
+      models[entry.key] = (models[entry.key] ?? 0) + entry.value;
+    }
+  }
 }
 
 /// Wall-clock time covered by [blocks], counting a minute once however many

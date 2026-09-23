@@ -280,6 +280,58 @@ class TabularSinkConfig {
   };
 }
 
+/// What the app opens on.
+///
+/// The window is a setting rather than a session: closing the app on a quarter
+/// and opening it on this month again reads as history that is not there.
+///
+/// Every choice here is the app's own word for its own control, carried as it
+/// was written rather than understood. The engine files hours; which of them a
+/// window shows, and how a screen draws them, is not its business.
+class ViewConfig {
+  /// Creates a view.
+  const ViewConfig({
+    this.period = '',
+    this.start,
+    this.end,
+    this.mode = '',
+    this.measure = '',
+  });
+
+  /// Reads a view from its JSON form.
+  factory ViewConfig.fromJson(Map<String, Object?> json) => ViewConfig(
+    period: json['period'] as String? ?? '',
+    start: DateTime.tryParse('${json['start']}'),
+    end: DateTime.tryParse('${json['end']}'),
+    mode: json['mode'] as String? ?? '',
+    measure: json['measure'] as String? ?? '',
+  );
+
+  /// The window.
+  final String period;
+
+  /// Both ends of a custom window.
+  final DateTime? start;
+
+  /// Both ends of a custom window.
+  final DateTime? end;
+
+  /// How overlapping sessions are counted.
+  final String mode;
+
+  /// What the graphs draw.
+  final String measure;
+
+  /// JSON form, leaving out whatever has never been chosen.
+  Map<String, Object?> toJson() => {
+    if (period.isNotEmpty) 'period': period,
+    if (start != null) 'start': start!.toIso8601String(),
+    if (end != null) 'end': end!.toIso8601String(),
+    if (mode.isNotEmpty) 'mode': mode,
+    if (measure.isNotEmpty) 'measure': measure,
+  };
+}
+
 /// Everything the engine reads before it touches a transcript or a store.
 class AiTrackerConfig {
   /// Creates a configuration.
@@ -295,6 +347,7 @@ class AiTrackerConfig {
     this.tabular = const TabularSinkConfig(),
     this.mcpEnabled = false,
     this.mcpPort = 8788,
+    this.view = const ViewConfig(),
   });
 
   /// Directories holding one subdirectory per project of `*.jsonl` transcripts.
@@ -338,6 +391,9 @@ class AiTrackerConfig {
   /// Port that socket binds to.
   final int mcpPort;
 
+  /// What the app opens on.
+  final ViewConfig view;
+
   /// Configuration with no rules, scanning whatever transcript roots exist.
   factory AiTrackerConfig.initial() =>
       AiTrackerConfig(sources: discoverSources());
@@ -371,6 +427,9 @@ class AiTrackerConfig {
       ),
       mcpEnabled: json['mcp_enabled'] as bool? ?? false,
       mcpPort: json['mcp_port'] as int? ?? 8788,
+      view: ViewConfig.fromJson(
+        (json['view'] as Map?)?.cast<String, Object?>() ?? const {},
+      ),
     );
   }
 
@@ -387,6 +446,7 @@ class AiTrackerConfig {
     'tabular': tabular.toJson(),
     'mcp_enabled': mcpEnabled,
     'mcp_port': mcpPort,
+    'view': view.toJson(),
   };
 
   /// A copy with the given fields replaced.
@@ -402,6 +462,7 @@ class AiTrackerConfig {
     TabularSinkConfig? tabular,
     bool? mcpEnabled,
     int? mcpPort,
+    ViewConfig? view,
   }) => AiTrackerConfig(
     sources: sources ?? this.sources,
     idleGap: idleGap ?? this.idleGap,
@@ -414,6 +475,7 @@ class AiTrackerConfig {
     tabular: tabular ?? this.tabular,
     mcpEnabled: mcpEnabled ?? this.mcpEnabled,
     mcpPort: mcpPort ?? this.mcpPort,
+    view: view ?? this.view,
   );
 
   /// How [project] lines up with the two apps, if it has been mapped.

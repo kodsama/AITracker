@@ -47,9 +47,11 @@ class Fixture {
             .toIso8601String();
     File('${projects.path}/mapped.jsonl').writeAsStringSync(
       '{"timestamp":"${at(9, 0)}","cwd":"/Users/me/Developer/idbuddy",'
-      '"message":{"usage":{"input_tokens":10,"output_tokens":700,'
-      '"cache_creation_input_tokens":20,"cache_read_input_tokens":300}}}\n'
-      '{"timestamp":"${at(10, 30)}","cwd":"/Users/me/Developer/idbuddy"}\n',
+      '"message":{"model":"claude-opus-5","usage":{"input_tokens":10,'
+      '"output_tokens":700,"cache_creation_input_tokens":20,'
+      '"cache_read_input_tokens":300}}}\n'
+      '{"timestamp":"${at(10, 30)}","cwd":"/Users/me/Developer/idbuddy",'
+      '"message":{"model":"claude-sonnet-5"}}\n',
     );
     File('${projects.path}/stray.jsonl').writeAsStringSync(
       '{"timestamp":"${at(13, 0)}","cwd":"/Users/me/Developer/mystery"}\n'

@@ -81,7 +81,7 @@ class HistoryStore {
   final String path;
 
   /// Schema this build writes.
-  static const int schemaVersion = 1;
+  static const int schemaVersion = 2;
 
   /// How much of a transcript is held in memory at once.
   ///
@@ -119,6 +119,11 @@ class HistoryStore {
   static void _migrate(Database db) {
     final version = db.select('pragma user_version').first.values.first as int;
     if (version >= schemaVersion) return;
+    if (version >= 1) {
+      _addModels(db);
+      db.execute('pragma user_version = $schemaVersion');
+      return;
+    }
     db.execute('''
       create table if not exists files (
         id integer primary key autoincrement,
@@ -138,7 +143,8 @@ class HistoryStore {
         input integer not null,
         output integer not null,
         cache_write integer not null,
-        cache_read integer not null
+        cache_read integer not null,
+        model text not null default ''
       );
       create index if not exists events_at on events (at);
       create index if not exists events_file on events (file_id);
@@ -154,6 +160,7 @@ class HistoryStore {
         output integer not null,
         cache_write integer not null,
         cache_read integer not null,
+        models text not null default '',
         primary key (params, mode, day, directory, start)
       );
       create index if not exists blocks_day on blocks (params, mode, day);
@@ -166,6 +173,35 @@ class HistoryStore {
     ''');
     db.execute('pragma user_version = $schemaVersion');
     Log.info('archive created at schema $schemaVersion');
+  }
+
+  /// Adds the model to an archive written before it was recorded.
+  ///
+  /// The events themselves are kept: a transcript pruned months ago is only in
+  /// here now, and throwing it away to re-read what is left would lose exactly
+  /// the history this archive exists for. What can be read again is: a file
+  /// still on disk has its events dropped and its offset wound back, so the
+  /// next scan fills the model in for it. The rest keep no model, which is the
+  /// truth about what was recorded at the time.
+  static void _addModels(Database db) {
+    db.execute("alter table events add column model text not null default ''");
+    db.execute("alter table blocks add column models text not null default ''");
+    var reread = 0;
+    for (final row in db.select('select id, path from files')) {
+      if (!File(row['path']! as String).existsSync()) continue;
+      db.execute('delete from events where file_id = ?', [row['id']]);
+      db.execute(
+        'update files set offset = 0, size = 0, modified = 0 where id = ?',
+        [row['id']],
+      );
+      reread++;
+    }
+    db.execute('delete from blocks');
+    db.execute('delete from days');
+    Log.info(
+      'archive moved to schema $schemaVersion; $reread transcripts will be '
+      'read again to fill in the model',
+    );
   }
 
   /// Reads whatever is new in [sources] into the archive.
@@ -300,7 +336,7 @@ class HistoryStore {
     if (events.isEmpty) return null;
     final insert = _db.prepare(
       'insert into events (file_id, at, directory, session, input, output, '
-      'cache_write, cache_read) values (?, ?, ?, ?, ?, ?, ?, ?)',
+      'cache_write, cache_read, model) values (?, ?, ?, ?, ?, ?, ?, ?, ?)',
     );
     try {
       for (final event in events) {
@@ -313,6 +349,7 @@ class HistoryStore {
           event.tokens.output,
           event.tokens.cacheWrite,
           event.tokens.cacheRead,
+          event.model,
         ]);
       }
     } finally {
@@ -439,7 +476,7 @@ class HistoryStore {
 
       final insert = _db.prepare(
         'insert into events (file_id, at, directory, session, input, output, '
-        'cache_write, cache_read) values (?, ?, ?, ?, ?, ?, ?, ?)',
+        'cache_write, cache_read, model) values (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       );
       try {
         for (final event in events) {
@@ -452,6 +489,7 @@ class HistoryStore {
             event.tokens.output,
             event.tokens.cacheWrite,
             event.tokens.cacheRead,
+            event.model,
           ]);
         }
       } finally {
@@ -466,8 +504,8 @@ class HistoryStore {
   /// Events between [from] and [to], oldest first.
   List<ActivityEvent> events({DateTime? from, DateTime? to}) => [
     for (final row in _db.select(
-      'select at, directory, session, input, output, cache_write, cache_read '
-      'from events where at >= ? and at < ? order by at',
+      'select at, directory, session, input, output, cache_write, cache_read, '
+      'model from events where at >= ? and at < ? order by at',
       [
         from?.millisecondsSinceEpoch ?? 0,
         to?.millisecondsSinceEpoch ?? 1 << 62,
@@ -483,6 +521,7 @@ class HistoryStore {
           cacheWrite: row['cache_write']! as int,
           cacheRead: row['cache_read']! as int,
         ),
+        model: row['model']! as String,
       ),
   ];
 
@@ -510,7 +549,7 @@ class HistoryStore {
     return [
       for (final row in _db.select(
         'select directory, start, finish, sessions, input, output, '
-        'cache_write, cache_read from blocks '
+        'cache_write, cache_read, models from blocks '
         'where params = ? and mode = ? and start >= ? and start < ? '
         'order by start',
         [
@@ -531,9 +570,28 @@ class HistoryStore {
             cacheWrite: row['cache_write']! as int,
             cacheRead: row['cache_read']! as int,
           ),
+          models: _modelsFrom(row['models']! as String),
         ),
     ];
   }
+
+  /// The models a cached block was built with, held as `name:count` pairs
+  /// because the alternative is a table nothing else would read.
+  static Map<String, int> _modelsFrom(String held) {
+    if (held.isEmpty) return const {};
+    final models = <String, int>{};
+    for (final pair in held.split(',')) {
+      final at = pair.lastIndexOf(':');
+      if (at <= 0) continue;
+      final count = int.tryParse(pair.substring(at + 1));
+      if (count == null) continue;
+      models[pair.substring(0, at)] = count;
+    }
+    return models;
+  }
+
+  static String _modelsTo(Map<String, int> models) =>
+      models.entries.map((e) => '${e.key}:${e.value}').join(',');
 
   void _ensureDay(
     DateTime day,
@@ -562,8 +620,8 @@ class HistoryStore {
 
     final insert = _db.prepare(
       'insert or replace into blocks (params, mode, day, directory, start, '
-      'finish, sessions, input, output, cache_write, cache_read) '
-      'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'finish, sessions, input, output, cache_write, cache_read, models) '
+      'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     );
     try {
       for (final block in built) {
@@ -580,6 +638,7 @@ class HistoryStore {
           block.tokens.output,
           block.tokens.cacheWrite,
           block.tokens.cacheRead,
+          _modelsTo(block.models),
         ]);
       }
     } finally {

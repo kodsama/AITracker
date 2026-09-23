@@ -24,6 +24,7 @@ class SummaryHeader extends StatelessWidget {
       ..sort((a, b) => b.value.compareTo(a.value));
     final longest = totals.isEmpty ? Duration.zero : totals.first.value;
     final tokens = state.tokens;
+    final models = state.models;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(28, 24, 28, 8),
@@ -134,6 +135,12 @@ class SummaryHeader extends StatelessWidget {
                   help: 'Input, output and cache writes',
                 ),
               ],
+              if (models.isNotEmpty)
+                _Figure(
+                  label: models.length == 1 ? 'Model' : 'Models',
+                  value: _shortModel(models.first.key),
+                  help: _whichModels(models),
+                ),
             ],
           ),
           if (totals.isNotEmpty) ...[
@@ -251,4 +258,22 @@ class _ProjectBar extends StatelessWidget {
       ),
     );
   }
+}
+
+/// `opus-5` out of `claude-opus-5`: the vendor is not the news on a stat.
+String _shortModel(String model) {
+  const prefixes = ['claude-', 'gpt-', 'gemini-', 'cursor-'];
+  for (final prefix in prefixes) {
+    if (model.startsWith(prefix)) return model.substring(prefix.length);
+  }
+  return model;
+}
+
+/// Every model in the window with its share, for the tooltip.
+String _whichModels(List<MapEntry<String, int>> models) {
+  final turns = models.fold<int>(0, (sum, entry) => sum + entry.value);
+  return [
+    for (final model in models)
+      '${model.key}  ${(100 * model.value / turns).round()}%',
+  ].join('\n');
 }

@@ -340,6 +340,83 @@ void main() {
     expect(File('${fixture.root.path}/auto.csv').existsSync(), isTrue);
   });
 
+  group('what the next run opens on', () {
+    test('the window, the count and the measure outlive the app', () async {
+      final first = fixture.state();
+      await first.load();
+      await first.setPeriod(PeriodKind.thisYear);
+      first.setMode(CountMode.perProject);
+      first.setMeasure(Measure.tokens);
+      first.dispose();
+
+      final second = fixture.state();
+      addTearDown(second.dispose);
+      await second.load();
+
+      expect(second.periodKind, PeriodKind.thisYear);
+      expect(second.mode, CountMode.perProject);
+      expect(second.measure, Measure.tokens);
+      // And it is where the window starts, not just what it is called.
+      expect(second.period.start, DateTime(DateTime.now().year));
+    });
+
+    test('a custom window keeps both its dates', () async {
+      final first = fixture.state();
+      await first.load();
+      await first.setPeriod(
+        PeriodKind.custom,
+        start: DateTime(2026, 3, 1),
+        end: DateTime(2026, 3, 31),
+      );
+      first.dispose();
+
+      final second = fixture.state();
+      addTearDown(second.dispose);
+      await second.load();
+
+      expect(second.periodKind, PeriodKind.custom);
+      expect(second.period.start, DateTime(2026, 3, 1));
+      expect(second.period.end.isAfter(DateTime(2026, 3, 31)), isTrue);
+    });
+
+    test('a configuration naming no window opens on this month', () async {
+      final state = fixture.state();
+      addTearDown(state.dispose);
+      await state.load();
+
+      expect(state.periodKind, PeriodKind.thisMonth);
+      expect(AiTrackerConfig.load(fixture.configPath).view.toJson(), isEmpty);
+    });
+
+    test('a window it does not recognise is not one it opens on', () async {
+      final config = AiTrackerConfig.load(fixture.configPath);
+      config
+          .copyWith(view: const ViewConfig(period: 'lastFortnight', mode: 'x'))
+          .save(fixture.configPath);
+
+      final state = fixture.state();
+      addTearDown(state.dispose);
+      await state.load();
+
+      expect(state.periodKind, PeriodKind.thisMonth);
+      expect(state.mode, CountMode.wallClock);
+    });
+
+    test('going back writes the window it went back to', () async {
+      final state = fixture.state();
+      addTearDown(state.dispose);
+      await state.load();
+      await state.setPeriod(PeriodKind.thisYear);
+
+      await state.goBack();
+
+      expect(
+        AiTrackerConfig.load(fixture.configPath).view.period,
+        PeriodKind.thisMonth.name,
+      );
+    });
+  });
+
   group('going back', () {
     test('a screen is remembered, and back returns to it', () async {
       final state = fixture.state();

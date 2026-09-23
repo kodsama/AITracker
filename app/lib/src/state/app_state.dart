@@ -302,6 +302,22 @@ class AppState extends ChangeNotifier {
     (sum, block) => sum + block.block.tokens,
   );
 
+  /// Which models answered in the window, heaviest first.
+  ///
+  /// Counted in turns rather than in time: a block is one stretch of attention
+  /// and can have had two models in it, and there is no honest way to split the
+  /// minutes between them.
+  List<MapEntry<String, int>> get models {
+    final counted = <String, int>{};
+    for (final block in _exclusive) {
+      for (final entry in block.block.models.entries) {
+        counted[entry.key] = (counted[entry.key] ?? 0) + entry.value;
+      }
+    }
+    return counted.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+  }
+
   /// Every project name in play: the rules, the mapping, the hand edits and
   /// what WorkingHours already holds.
   List<String> get knownProjects {
@@ -352,6 +368,7 @@ class AppState extends ChangeNotifier {
   /// changing the window rereads only the files that moved.
   Future<void> load() async {
     _config = AiTrackerConfig.load(configPath);
+    _adoptView(_config.view);
     _overrides = OverrideStore.load(overridesPath);
     _catalog = Catalog.read(_config);
     _worker ??= background
@@ -484,6 +501,49 @@ class AppState extends ChangeNotifier {
     await refresh();
   });
 
+  /// Takes the window and the two toggles the last run left behind.
+  void _adoptView(ViewConfig view) {
+    _periodKind = _named(PeriodKind.values, view.period) ?? _periodKind;
+    _customStart = view.start;
+    _customEnd = view.end;
+    _mode = _named(CountMode.values, view.mode) ?? _mode;
+    _measure = _named(Measure.values, view.measure) ?? _measure;
+  }
+
+  /// The view as the configuration file holds it.
+  ViewConfig get _view => ViewConfig(
+    period: _periodKind.name,
+    start: _customStart,
+    end: _customEnd,
+    mode: _mode.name,
+    measure: _measure.name,
+  );
+
+  /// Writes the window back, so the next run opens where this one left off.
+  ///
+  /// Only the view: a save of the whole configuration here would race the
+  /// settings screen, which is editing the same file.
+  void _keepView() {
+    final kept = _config.view;
+    final now = _view;
+    if (kept.period == now.period &&
+        kept.start == now.start &&
+        kept.end == now.end &&
+        kept.mode == now.mode &&
+        kept.measure == now.measure) {
+      return;
+    }
+    _config = _config.copyWith(view: now);
+    if (configPath != null) _config.save(configPath!);
+  }
+
+  static T? _named<T extends Enum>(List<T> values, String name) {
+    for (final value in values) {
+      if (value.name == name) return value;
+    }
+    return null;
+  }
+
   /// Opens a screen, remembering the one it left.
   void goTo(Screen screen) {
     if (screen == _screen) return;
@@ -532,6 +592,7 @@ class AppState extends ChangeNotifier {
   }
 
   void _remember(_Place from, _Place to) {
+    _keepView();
     if (from.matches(to)) return;
     // A place already on the stack that differs only by what is typed in the
     // search box is the same place, and one entry is enough for it.
@@ -564,6 +625,7 @@ class AppState extends ChangeNotifier {
     if (rescan) {
       await refresh();
     }
+    _keepView();
     _dropUnseen();
   }
 

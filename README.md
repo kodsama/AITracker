@@ -39,7 +39,13 @@ instead of a million events.
 
 The graphs draw hours, tokens, or one chart of each: two quantities that far
 apart never share an axis. Anywhere you can click through to, back and forward
-will take you out of again, on the buttons or on ⌘[ and ⌘].
+will take you out of again, on the buttons or on ⌘[ and ⌘]. The window you were
+last in is the window it opens on.
+
+Which model answered is recorded per turn and shown beside the hours and the
+tokens, counted in turns rather than minutes: a stretch of attention can have
+had two models in it, and there is no honest way to split the minutes between
+them.
 
 From those events:
 
