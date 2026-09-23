@@ -340,6 +340,48 @@ void main() {
     expect(File('${fixture.root.path}/auto.csv').existsSync(), isTrue);
   });
 
+  group('what is already worked out', () {
+    test('a scan works out every day the archive covers, not just the window',
+        () async {
+      // Work two months before the window the app opens on.
+      final projects = Directory('${fixture.root.path}/projects/p');
+      final old = DateTime.now().subtract(const Duration(days: 60));
+      String at(int hour) =>
+          DateTime(old.year, old.month, old.day, hour).toUtc().toIso8601String();
+      File('${projects.path}/older.jsonl').writeAsStringSync(
+        '{"timestamp":"${at(9)}","cwd":"/Users/me/Developer/idbuddy"}\n'
+        '{"timestamp":"${at(11)}","cwd":"/Users/me/Developer/idbuddy"}\n',
+      );
+
+      final state = fixture.state();
+      addTearDown(state.dispose);
+      await state.load();
+
+      // It gets there a slice at a time, and the slice is a stated size.
+      expect(AppState.warmSlice, greaterThan(0));
+
+      // Nothing is left to work out, whatever window is asked for next.
+      final store = HistoryStore.open(state.historyPath);
+      addTearDown(store.close);
+      expect(
+        store.warm(
+          idleGap: state.config.idleGap,
+          minBlock: state.config.minBlock,
+          limit: 0,
+        ),
+        0,
+      );
+
+      // And that older window is served from what is stored.
+      await state.setPeriod(
+        PeriodKind.custom,
+        start: DateTime(old.year, old.month, old.day),
+        end: DateTime(old.year, old.month, old.day),
+      );
+      expect(state.blocks, hasLength(1));
+    });
+  });
+
   group('what the next run opens on', () {
     test('the window, the count and the measure outlive the app', () async {
       final first = fixture.state();

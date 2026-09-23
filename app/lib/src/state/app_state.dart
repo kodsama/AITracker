@@ -401,7 +401,44 @@ class AppState extends ChangeNotifier {
     _loading = false;
     notifyListeners();
     await _fileAutomatically();
+    await _workOutTheRest(generation);
   }
+
+  /// Works out the days no window has asked for yet, a slice at a time.
+  ///
+  /// The events were pulled once and are never pulled again; this is the rest
+  /// of the job, so that opening a year later reads what is already stored
+  /// instead of working out three hundred days on the spot. A slice at a time
+  /// because the worker answers one request at a time, and a scan the user
+  /// asked for should not queue behind this.
+  Future<void> _workOutTheRest(int generation) async {
+    // Nothing here changes what is on screen, so nothing here is worth
+    // failing a scan over: an archive that cannot be opened has already been
+    // reported by the scan itself.
+    if (_trouble != null) return;
+    try {
+      var left = 1;
+      while (left > 0 && generation == _scan) {
+        final worker = _worker;
+        final found = worker != null
+            ? await worker.scan(
+                config: _config,
+                overrides: _overrides,
+                window: period,
+                ingest: false,
+                warm: warmSlice,
+              )
+            : _scanHere(_config, _overrides, period,
+                ingest: false, warm: warmSlice);
+        left = found.unworked;
+      }
+    } on Object catch (error) {
+      Log.warn('could not work the rest of the days out: $error');
+    }
+  }
+
+  /// Days worked out per round of filling in.
+  static const int warmSlice = 40;
 
   Future<void> _load(int generation, {required bool ingest}) async {
     final config = _config;
@@ -438,25 +475,42 @@ class AppState extends ChangeNotifier {
     OverrideStore overrides,
     Period window, {
     bool ingest = true,
+    int warm = 0,
   }) {
-    final tracking = AiTracker(
-      config: config,
-      overrides: overrides,
-      historyPath: historyPath,
-    );
-    return ScanResult(
-      wallClock: tracking.blocks(
-        since: window.start,
-        until: window.end,
-        ingest: ingest,
-      ),
-      perProject: tracking.blocks(
-        since: window.start,
-        until: window.end,
-        mode: BlockMode.perProject,
-        ingest: false,
-      ),
-    );
+    // One connection for the whole scan, as the worker's isolate holds one:
+    // opening and closing the archive around each read checkpoints its
+    // write-ahead log every time, which is most of what a scan costs.
+    final store = HistoryStore.open(historyPath);
+    try {
+      final tracking = AiTracker(
+        config: config,
+        overrides: overrides,
+        history: store,
+        historyPath: null,
+      );
+      return ScanResult(
+        wallClock: tracking.blocks(
+          since: window.start,
+          until: window.end,
+          ingest: ingest,
+        ),
+        perProject: tracking.blocks(
+          since: window.start,
+          until: window.end,
+          mode: BlockMode.perProject,
+          ingest: false,
+        ),
+        unworked: warm <= 0
+            ? 0
+            : store.warm(
+                idleGap: config.idleGap,
+                minBlock: config.minBlock,
+                limit: warm,
+              ),
+      );
+    } finally {
+      store.close();
+    }
   }
 
   /// Runs the sinks that file by themselves.

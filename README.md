@@ -31,6 +31,13 @@ the database, so those conversations are left out rather than guessed at, and
 the log says how many. Cursor also stopped recording token counts locally
 around the same time and now writes zeroes, so its hours arrive without tokens.
 
+Everything is pulled once. A transcript is read from the byte it was last read
+to, an editor's database from the newest event already held, and nothing that
+has been archived is ever fetched again. The blocks made from those events are
+worked out per day and kept as well, and a scan fills in every day the archive
+covers rather than only the window on screen, so asking for a year later reads
+what is already stored instead of working out three hundred days on the spot.
+
 The archive holds the events rather than the blocks, so the idle gap stays a
 setting: change it and the whole history is read again through the new one,
 rather than leaving a seam at the day you changed it. Days are worked out once

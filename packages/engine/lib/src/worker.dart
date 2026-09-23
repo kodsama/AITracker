@@ -11,7 +11,11 @@ import 'tracking.dart';
 /// The two readings of one scan.
 class ScanResult {
   /// Creates a result.
-  const ScanResult({required this.wallClock, required this.perProject});
+  const ScanResult({
+    required this.wallClock,
+    required this.perProject,
+    this.unworked = 0,
+  });
 
   /// Blocks that never overlap: a minute belongs to one project. This is what
   /// every export writes.
@@ -19,6 +23,12 @@ class ScanResult {
 
   /// Each project on its own timeline, so parallel sessions count for both.
   final List<TrackedBlock> perProject;
+
+  /// Days the archive covers that have not been worked out yet.
+  ///
+  /// Zero means every window is now served from what is stored, and nothing
+  /// else has to be asked for.
+  final int unworked;
 
   /// Nothing found.
   static const ScanResult empty = ScanResult(wallClock: [], perProject: []);
@@ -85,13 +95,17 @@ class ScanWorker {
   }
 
   /// Blocks in [window], resolved through [config] and [overrides].
+  ///
   /// With [ingest] false the archive is only read, which is how a window is
-  /// painted before the transcripts are looked at.
+  /// painted before the transcripts are looked at. [warm] days outside the
+  /// window are worked out as well, so that asking for a year later costs
+  /// nothing; the answer says how many are still waiting.
   Future<ScanResult> scan({
     required AiTrackerConfig config,
     required OverrideStore overrides,
     required Period window,
     bool ingest = true,
+    int warm = 0,
   }) {
     if (_stopping) return Future.value(ScanResult.empty);
     final id = _next++;
@@ -107,6 +121,7 @@ class ScanWorker {
       window.start.toIso8601String(),
       window.end.toIso8601String(),
       ingest,
+      warm,
     ]);
     return waiting.future;
   }
@@ -191,7 +206,7 @@ class ScanWorker {
         historyPath: null,
       );
       if (request[5]! as bool) history.ingest(config.sources);
-      return ScanResult(
+      final result = ScanResult(
         wallClock: tracking.blocks(since: start, until: end, ingest: false),
         perProject: tracking.blocks(
           since: start,
@@ -199,7 +214,15 @@ class ScanWorker {
           mode: BlockMode.perProject,
           ingest: false,
         ),
+        unworked: (request[6]! as int) <= 0
+            ? 0
+            : history.warm(
+                idleGap: config.idleGap,
+                minBlock: config.minBlock,
+                limit: request[6]! as int,
+              ),
       );
+      return result;
     } on Object catch (error) {
       Log.error('scan failed', error);
       return '$error';

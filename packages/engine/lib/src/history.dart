@@ -538,7 +538,7 @@ class HistoryStore {
     required Duration minBlock,
     BlockMode mode = BlockMode.wallClock,
   }) {
-    final params = 'gap=${idleGap.inMinutes};min=${minBlock.inMinutes}';
+    final params = _paramsFor(idleGap, minBlock);
     for (
       var day = DateTime(from.year, from.month, from.day);
       day.isBefore(to);
@@ -592,6 +592,77 @@ class HistoryStore {
 
   static String _modelsTo(Map<String, int> models) =>
       models.entries.map((e) => '${e.key}:${e.value}').join(',');
+
+  /// Works out days the archive covers that have not been worked out yet,
+  /// oldest first, and says how many are still waiting.
+  ///
+  /// The events are pulled once and never again; the blocks made from them are
+  /// worked out per day and kept. Left to itself that only ever fills in the
+  /// days a window has actually shown, so the first look at a year pays for
+  /// every day in it at once. Filling them in after a scan instead means any
+  /// window is served from what is already stored.
+  ///
+  /// [limit] days per call, because this runs in the same isolate as the scans
+  /// and a year of them in one go would make it wait.
+  int warm({
+    required Duration idleGap,
+    required Duration minBlock,
+    int limit = 40,
+  }) {
+    var left = 0;
+    for (final mode in BlockMode.values) {
+      left += _warmMode(idleGap, minBlock, mode, limit);
+    }
+    return left;
+  }
+
+  int _warmMode(
+    Duration idleGap,
+    Duration minBlock,
+    BlockMode mode,
+    int limit,
+  ) {
+    final span = _db.select('select min(at) as first, max(at) as last from events');
+    final first = span.first['first'];
+    final last = span.first['last'];
+    if (first is! int || last is! int) return 0;
+
+    final params = _paramsFor(idleGap, minBlock);
+    final known = {
+      for (final row in _db.select(
+        'select day from days where params = ? and mode = ?',
+        [params, mode.key],
+      ))
+        row['day']! as int,
+    };
+
+    final until = _dayOf(last);
+    var left = 0;
+    var done = 0;
+    for (
+      var day = DateTime.fromMillisecondsSinceEpoch(_dayOf(first));
+      !day.isAfter(DateTime.fromMillisecondsSinceEpoch(until));
+      day = DateTime(day.year, day.month, day.day + 1)
+    ) {
+      if (known.contains(day.millisecondsSinceEpoch)) continue;
+      if (done >= limit) {
+        left++;
+        continue;
+      }
+      _ensureDay(day, params, idleGap, minBlock, mode);
+      done++;
+    }
+    if (done > 0) {
+      Log.info(
+        'worked out $done ${mode.key} days, $left to go',
+      );
+    }
+    return left;
+  }
+
+  /// The key a set of thresholds is stored under.
+  static String _paramsFor(Duration idleGap, Duration minBlock) =>
+      'gap=${idleGap.inMinutes};min=${minBlock.inMinutes}';
 
   void _ensureDay(
     DateTime day,

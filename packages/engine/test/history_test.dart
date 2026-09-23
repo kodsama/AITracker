@@ -379,6 +379,106 @@ void main() {
     expect(reopened.summary().events, 1);
   });
 
+  group('working out the days nobody asked for', () {
+    int stored() => store
+        .blocks(
+          from: DateTime(2026, 7),
+          to: DateTime(2026, 10),
+          idleGap: const Duration(hours: 1),
+          minBlock: Duration.zero,
+        )
+        .length;
+
+    test('every day the archive covers is worked out, a slice at a time', () {
+      write('a.jsonl', [
+        line('2026-07-01T09:00:00.000Z'),
+        line('2026-07-01T09:30:00.000Z'),
+        line('2026-09-01T09:00:00.000Z'),
+        line('2026-09-01T09:30:00.000Z'),
+      ]);
+      ingest();
+
+      // Sixty-three days between the first event and the last.
+      var left = store.warm(
+        idleGap: const Duration(hours: 1),
+        minBlock: Duration.zero,
+        limit: 10,
+      );
+      // Sixty-three days in each of the two readings, ten of each done.
+      expect(left, 106);
+
+      var rounds = 1;
+      while (left > 0) {
+        left = store.warm(
+          idleGap: const Duration(hours: 1),
+          minBlock: Duration.zero,
+          limit: 10,
+        );
+        rounds++;
+      }
+
+      expect(rounds, 7);
+      expect(stored(), 2);
+    });
+
+    test('asking again once it is done costs nothing', () {
+      write('a.jsonl', [
+        line('2026-09-01T09:00:00.000Z'),
+        line('2026-09-01T09:30:00.000Z'),
+      ]);
+      ingest();
+
+      expect(
+        store.warm(idleGap: const Duration(hours: 1), minBlock: Duration.zero),
+        0,
+      );
+      expect(
+        store.warm(idleGap: const Duration(hours: 1), minBlock: Duration.zero),
+        0,
+      );
+    });
+
+    test('an empty archive has nothing to work out', () {
+      expect(
+        store.warm(idleGap: const Duration(hours: 1), minBlock: Duration.zero),
+        0,
+      );
+    });
+
+    test('both readings of a day are worked out, and other settings are not', () {
+      write('a.jsonl', [
+        line('2026-09-01T09:00:00.000Z'),
+        line('2026-09-01T09:30:00.000Z'),
+      ]);
+      ingest();
+      store.warm(idleGap: const Duration(hours: 1), minBlock: Duration.zero);
+
+      // Both readings are stored, so neither is worked out again.
+      for (final mode in BlockMode.values) {
+        expect(
+          store.blocks(
+            from: DateTime(2026, 9),
+            to: DateTime(2026, 10),
+            idleGap: const Duration(hours: 1),
+            minBlock: Duration.zero,
+            mode: mode,
+          ),
+          hasLength(1),
+        );
+      }
+
+      // A different idle gap is a different set of days, and says so.
+      expect(
+        store.warm(
+          idleGap: const Duration(minutes: 5),
+          minBlock: Duration.zero,
+          limit: 0,
+        ),
+        greaterThan(0),
+      );
+    });
+  });
+
   test('a cached day gives back the models it was built with', () {
     write('a.jsonl', [
       '{"timestamp":"2026-09-01T09:00:00.000Z","cwd":"/repo",'

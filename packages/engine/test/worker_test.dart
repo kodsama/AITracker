@@ -167,10 +167,46 @@ void main() {
       DateTime(2026, 9).toIso8601String(),
       DateTime(2026, 10).toIso8601String(),
       true,
+      0,
     ], history);
 
     expect(answer, isA<ScanResult>());
     expect((answer as ScanResult).wallClock, hasLength(2));
+    // Nothing was asked to be worked out ahead, so nothing is outstanding.
+    expect(answer.unworked, 0);
+  });
+
+  test('a request can work out days no window asked for', () {
+    // Work in July as well, which the window below does not cover: those are
+    // the days there would otherwise be nothing stored for.
+    File('${temp.path}/projects/p/c.jsonl').writeAsStringSync(
+      '{"timestamp":"2026-07-01T07:00:00.000Z","cwd":"/Users/me/idbuddy"}\n'
+      '{"timestamp":"2026-07-01T07:30:00.000Z","cwd":"/Users/me/idbuddy"}\n',
+    );
+    final history = HistoryStore.open('${temp.path}/warm.db');
+    addTearDown(history.close);
+
+    ScanResult ask(int warm) =>
+        ScanWorker.respond([
+              1,
+              config.toJson(),
+              <String, Object?>{},
+              DateTime(2026, 9).toIso8601String(),
+              DateTime(2026, 10).toIso8601String(),
+              true,
+              warm,
+            ], history)
+            as ScanResult;
+
+    // One day at a time, so there is something left after the first round.
+    expect(ask(1).unworked, greaterThan(0));
+    var left = ask(1).unworked;
+    while (left > 0) {
+      left = ask(1).unworked;
+    }
+
+    // And once everything is worked out, nothing is asked for again.
+    expect(ask(40).unworked, 0);
   });
 
   test('a stopped worker answers nothing rather than hanging', () async {
