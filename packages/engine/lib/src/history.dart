@@ -539,12 +539,20 @@ class HistoryStore {
     BlockMode mode = BlockMode.wallClock,
   }) {
     final params = _paramsFor(idleGap, minBlock);
-    for (
+    // Only the days the archive actually covers: asking for everything is a
+    // window from the year 2000, and there is nothing to work out in any of it.
+    final held = span;
+    if (held != null) {
+      final (first, last) = held;
       var day = DateTime(from.year, from.month, from.day);
-      day.isBefore(to);
-      day = DateTime(day.year, day.month, day.day + 1)
-    ) {
-      _ensureDay(day, params, idleGap, minBlock, mode);
+      if (day.isBefore(DateTime(first.year, first.month, first.day))) {
+        day = DateTime(first.year, first.month, first.day);
+      }
+      final until = DateTime(last.year, last.month, last.day + 1);
+      for (; day.isBefore(to) && day.isBefore(until);
+          day = DateTime(day.year, day.month, day.day + 1)) {
+        _ensureDay(day, params, idleGap, minBlock, mode);
+      }
     }
     return [
       for (final row in _db.select(
@@ -593,6 +601,21 @@ class HistoryStore {
   static String _modelsTo(Map<String, int> models) =>
       models.entries.map((e) => '${e.key}:${e.value}').join(',');
 
+  /// The first and last moment the archive holds, or null when it holds
+  /// nothing.
+  (DateTime, DateTime)? get span {
+    final row = _db
+        .select('select min(at) as first, max(at) as last from events')
+        .first;
+    final first = row['first'];
+    final last = row['last'];
+    if (first is! int || last is! int) return null;
+    return (
+      DateTime.fromMillisecondsSinceEpoch(first),
+      DateTime.fromMillisecondsSinceEpoch(last),
+    );
+  }
+
   /// Works out days the archive covers that have not been worked out yet,
   /// oldest first, and says how many are still waiting.
   ///
@@ -622,10 +645,9 @@ class HistoryStore {
     BlockMode mode,
     int limit,
   ) {
-    final span = _db.select('select min(at) as first, max(at) as last from events');
-    final first = span.first['first'];
-    final last = span.first['last'];
-    if (first is! int || last is! int) return 0;
+    final held = span;
+    if (held == null) return 0;
+    final (first, last) = held;
 
     final params = _paramsFor(idleGap, minBlock);
     final known = {
@@ -636,12 +658,12 @@ class HistoryStore {
         row['day']! as int,
     };
 
-    final until = _dayOf(last);
+    final until = DateTime(last.year, last.month, last.day);
     var left = 0;
     var done = 0;
     for (
-      var day = DateTime.fromMillisecondsSinceEpoch(_dayOf(first));
-      !day.isAfter(DateTime.fromMillisecondsSinceEpoch(until));
+      var day = DateTime(first.year, first.month, first.day);
+      !day.isAfter(until);
       day = DateTime(day.year, day.month, day.day + 1)
     ) {
       if (known.contains(day.millisecondsSinceEpoch)) continue;

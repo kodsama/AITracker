@@ -33,6 +33,7 @@ class GraphsScreen extends StatelessWidget {
     final brightness = theme.brightness;
     final period = state.period;
     final blocks = state.blocks.where((b) => !b.excluded).toList();
+    final around = state.everyBlock.where((b) => !b.excluded).toList();
 
     final totals = <String, Duration>{};
     for (final block in blocks) {
@@ -155,7 +156,10 @@ class GraphsScreen extends StatelessWidget {
               subtitle: 'Each day in the colour of the project that took most '
                   'of it, darker the more there was.',
               child: CalendarHeatmap(
-                days: fold(dailyAmounts(blocks, amount.of)),
+                // Everything, not the window: the calendar draws the months
+                // around it to fill the card, and those months have work in
+                // them. Days outside the window are dimmed, not emptied.
+                days: fold(dailyAmounts(around, amount.of)),
                 period: period,
                 colorOf: colourOf,
                 amount: amount,

@@ -153,6 +153,8 @@ class AppState extends ChangeNotifier {
   OverrideStore _overrides = OverrideStore();
   Catalog _catalog = const Catalog();
   List<TrackedBlock> _blocks = const [];
+  List<TrackedBlock> _allWall = const [];
+  List<TrackedBlock> _allProject = const [];
   List<TrackedBlock> _exclusive = const [];
   List<TrackedBlock> _perProject = const [];
   final Set<String> _selected = {};
@@ -177,6 +179,15 @@ class AppState extends ChangeNotifier {
 
   /// Current configuration.
   AiTrackerConfig get config => _config;
+
+  /// Everything the archive holds, as the current mode counts it, whatever
+  /// window is on screen.
+  ///
+  /// The calendar draws the months around the window to fill its card, and
+  /// those months have work in them; handing it only the window would draw
+  /// them empty.
+  List<TrackedBlock> get everyBlock =>
+      _mode == CountMode.perProject ? _allProject : _allWall;
 
   /// Blocks in the window, newest first, after the filter and the search box.
   List<TrackedBlock> get blocks {
@@ -440,10 +451,20 @@ class AppState extends ChangeNotifier {
   /// Days worked out per round of filling in.
   static const int warmSlice = 40;
 
+  /// Before any assistant wrote a transcript, and long after this is running:
+  /// the two ends of "everything there is".
+  static final Period everything = Period(
+    label: 'everything',
+    start: DateTime(2000),
+    end: DateTime(2100),
+  );
+
   Future<void> _load(int generation, {required bool ingest}) async {
     final config = _config;
     final overrides = _overrides;
-    final window = period;
+    // Everything the archive holds, not the window: it is read once and kept,
+    // and every window after that is a filter over what is already in hand.
+    final window = everything;
     try {
       final worker = _worker;
       final found = worker != null
@@ -455,12 +476,9 @@ class AppState extends ChangeNotifier {
             )
           : _scanHere(config, overrides, window, ingest: ingest);
       if (generation != _scan) return;
-      _exclusive = found.wallClock;
-      _perProject = found.perProject;
-      _blocks = (_mode == CountMode.perProject ? _perProject : _exclusive)
-          .reversed
-          .toList();
-      _selected.removeWhere((key) => !_blocks.any((b) => b.key == key));
+      _allWall = found.wallClock;
+      _allProject = found.perProject;
+      _narrow();
       notifyListeners();
     } on Object catch (error) {
       if (generation != _scan) return;
@@ -546,13 +564,13 @@ class AppState extends ChangeNotifier {
       _customStart = start ?? _customStart;
       _customEnd = end ?? _customEnd;
     }
-    await refresh();
+    _narrow();
   });
 
   /// Steps the window back or forward by its own length.
   Future<void> stepPeriod(int delta) => _wentAsync(() async {
     _periodStep += delta;
-    await refresh();
+    _narrow();
   });
 
   /// Takes the window and the two toggles the last run left behind.
@@ -660,11 +678,6 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _restore(_Place place) async {
-    final rescan =
-        place.periodKind != _periodKind ||
-        place.customStart != _customStart ||
-        place.customEnd != _customEnd ||
-        place.periodStep != _periodStep;
     _screen = place.screen;
     _periodKind = place.periodKind;
     _customStart = place.customStart;
@@ -673,14 +686,12 @@ class AppState extends ChangeNotifier {
     _measure = place.measure;
     _filter = place.filter;
     _query = place.query;
-    // Directly, not through the setter: restoring a place is not a move of its
-    // own, and recording it would bury the one being restored.
-    if (place.mode != _mode) _applyMode(place.mode);
-    if (rescan) {
-      await refresh();
-    }
+    // The mode goes on directly rather than through its setter: restoring a
+    // place is not a move of its own, and recording it would bury the one
+    // being restored.
+    _mode = place.mode;
+    _narrow();
     _keepView();
-    _dropUnseen();
   }
 
   /// Switches what the graphs draw.
@@ -693,11 +704,22 @@ class AppState extends ChangeNotifier {
   ///
   /// Both readings come out of one scan, so this is a swap rather than a
   /// reason to go back to disk.
-  void setMode(CountMode mode) => _went(() => _applyMode(mode));
-
-  void _applyMode(CountMode mode) {
+  void setMode(CountMode mode) => _went(() {
     _mode = mode;
-    _blocks = (mode == CountMode.perProject ? _perProject : _exclusive)
+    _narrow();
+  });
+
+  /// Cuts what is held down to the window, which is all a window change is.
+  ///
+  /// Everything the archive holds is in hand, so moving the window, stepping
+  /// it or switching how it is counted is a filter over what is already here
+  /// rather than a reason to go back to storage.
+  void _narrow() {
+    final window = period;
+    bool inside(TrackedBlock block) => window.contains(block.block.start);
+    _exclusive = _allWall.where(inside).toList();
+    _perProject = _allProject.where(inside).toList();
+    _blocks = (_mode == CountMode.perProject ? _perProject : _exclusive)
         .reversed
         .toList();
     _selected.removeWhere((key) => !_blocks.any((b) => b.key == key));

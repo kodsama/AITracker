@@ -35,8 +35,11 @@ Everything is pulled once. A transcript is read from the byte it was last read
 to, an editor's database from the newest event already held, and nothing that
 has been archived is ever fetched again. The blocks made from those events are
 worked out per day and kept as well, and a scan fills in every day the archive
-covers rather than only the window on screen, so asking for a year later reads
-what is already stored instead of working out three hundred days on the spot.
+covers rather than only the window on screen.
+
+The app then holds the whole history, and the window is a filter over what is
+already in hand: moving it, stepping it or switching how it is counted touches
+no storage at all. Only a rescan goes back, and only for what is new.
 
 The archive holds the events rather than the blocks, so the idle gap stays a
 setting: change it and the whole history is read again through the new one,

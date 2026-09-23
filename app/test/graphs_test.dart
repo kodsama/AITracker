@@ -93,6 +93,35 @@ void main() {
     expect(find.byType(StackedBars), findsOneWidget);
   });
 
+  testWidgets('the months around the window are drawn with their own work', (
+    tester,
+  ) async {
+    // A day in the month before, which the window does not cover but the
+    // calendar draws to fill its card.
+    final today = DateTime.now();
+    final before = DateTime(today.year, today.month - 1, 15);
+    String at(int hour) =>
+        DateTime(before.year, before.month, before.day, hour)
+            .toUtc()
+            .toIso8601String();
+    File('${fixture.root.path}/projects/p/before.jsonl').writeAsStringSync(
+      '{"timestamp":"${at(9)}","cwd":"/Users/me/Developer/idbuddy"}\n'
+      '{"timestamp":"${at(11)}","cwd":"/Users/me/Developer/idbuddy"}\n',
+    );
+
+    await openGraphs(tester);
+    await scrollTo(tester, find.text('Calendar'));
+
+    final key =
+        'day-${before.year}-${before.month.toString().padLeft(2, '0')}-'
+        '${before.day.toString().padLeft(2, '0')}';
+    await hover(tester, find.byKey(Key(key)));
+
+    // It is outside the window, so it is dimmed, but it says what it held.
+    expect(state.period.contains(before), isFalse);
+    expect(find.textContaining('idbuddy'), findsWidgets);
+  });
+
   testWidgets('hovering a bar names what went into it', (tester) async {
     await openGraphs(tester);
     // The bars are painted, so the tooltip is what proves the hover landed.

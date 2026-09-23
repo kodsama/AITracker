@@ -382,6 +382,79 @@ void main() {
     });
   });
 
+  group('holding it all', () {
+    /// Work sixty days ago as well as today, so there is history outside the
+    /// window the app opens on.
+    DateTime writeOlder() {
+      final old = DateTime.now().subtract(const Duration(days: 60));
+      String at(int hour) =>
+          DateTime(old.year, old.month, old.day, hour).toUtc().toIso8601String();
+      File('${fixture.root.path}/projects/p/older.jsonl').writeAsStringSync(
+        '{"timestamp":"${at(9)}","cwd":"/Users/me/Developer/idbuddy"}\n'
+        '{"timestamp":"${at(11)}","cwd":"/Users/me/Developer/idbuddy"}\n',
+      );
+      return DateTime(old.year, old.month, old.day);
+    }
+
+    test('every block is held, whatever window is on screen', () async {
+      writeOlder();
+      final state = fixture.state();
+      addTearDown(state.dispose);
+      await state.load();
+
+      // The window shows today's work; what is held covers the older day too.
+      expect(state.blocks, hasLength(2));
+      expect(state.everyBlock.length, greaterThan(state.blocks.length));
+      // And what is read is everything there is, not a window over it.
+      expect(AppState.everything.contains(DateTime(2001)), isTrue);
+      expect(AppState.everything.contains(DateTime(2099)), isTrue);
+    });
+
+    test('changing the window reads nothing back', () async {
+      final old = writeOlder();
+      final state = fixture.state();
+      addTearDown(state.dispose);
+      await state.load();
+
+      // With the archive gone there is nothing left to read, so anything the
+      // window shows after this was already in hand.
+      File(state.historyPath).deleteSync();
+
+      await state.setPeriod(
+        PeriodKind.custom,
+        start: old,
+        end: old,
+      );
+
+      expect(state.blocks, hasLength(1));
+      expect(state.blocks.single.block.start.day, old.day);
+
+      await state.setPeriod(PeriodKind.thisMonth);
+      expect(state.blocks, hasLength(2));
+    });
+
+    test('stepping the window and switching the count read nothing back', () async {
+      writeOlder();
+      final state = fixture.state();
+      addTearDown(state.dispose);
+      await state.load();
+      File(state.historyPath).deleteSync();
+
+      final held = state.everyBlock.length;
+
+      await state.stepPeriod(-1);
+      await state.stepPeriod(1);
+
+      // Back where it started, with nothing lost and nothing fetched.
+      expect(state.blocks, hasLength(2));
+      expect(state.everyBlock, hasLength(held));
+
+      state.setMode(CountMode.perProject);
+      expect(state.blocks, hasLength(2));
+      expect(state.everyBlock, isNotEmpty);
+    });
+  });
+
   group('what the next run opens on', () {
     test('the window, the count and the measure outlive the app', () async {
       final first = fixture.state();
