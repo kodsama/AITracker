@@ -122,6 +122,69 @@ void main() {
     expect(find.textContaining('idbuddy'), findsWidgets);
   });
 
+  testWidgets('the calendar moves a month at a time, and stops at the end', (
+    tester,
+  ) async {
+    final today = DateTime.now();
+    final before = DateTime(today.year, today.month - 1, 15);
+    String at(int hour) =>
+        DateTime(before.year, before.month, before.day, hour)
+            .toUtc()
+            .toIso8601String();
+    File('${fixture.root.path}/projects/p/before.jsonl').writeAsStringSync(
+      '{"timestamp":"${at(9)}","cwd":"/Users/me/Developer/idbuddy"}\n'
+      '{"timestamp":"${at(11)}","cwd":"/Users/me/Developer/idbuddy"}\n',
+    );
+
+    await openGraphs(tester);
+    await scrollTo(tester, find.text('Calendar'));
+
+    String named(DateTime month) =>
+        '${const [
+          'January', 'February', 'March', 'April', 'May', 'June', 'July',
+          'August', 'September', 'October', 'November', 'December',
+        ][month.month - 1]} ${month.year}';
+
+    expect(find.text(named(DateTime(today.year, today.month))), findsOneWidget);
+
+    // Two months after the window's is drawn as padding, one before is not.
+    expect(find.text(named(DateTime(today.year, today.month + 2))), findsOneWidget);
+    expect(find.text(named(DateTime(today.year, today.month - 2))), findsNothing);
+
+    await tester.tap(find.byTooltip('A month earlier'));
+    await tester.pumpAndSettle();
+
+    // Everything has moved one month back.
+    expect(find.text(named(DateTime(today.year, today.month - 2))), findsOneWidget);
+    expect(find.text(named(DateTime(today.year, today.month + 2))), findsNothing);
+    expect(find.text(named(before)), findsOneWidget);
+
+    // By tooltip, not by icon: the period picker has chevrons of its own.
+    IconButton arrow(String tooltip) => tester.widget<IconButton>(
+      find.ancestor(
+        of: find.byTooltip(tooltip),
+        matching: find.byType(IconButton),
+      ),
+    );
+
+    // It keeps going until the work has scrolled off, then stops.
+    var taps = 0;
+    while (arrow('A month earlier').onPressed != null && taps < 12) {
+      await tester.tap(find.byTooltip('A month earlier'));
+      await tester.pumpAndSettle();
+      taps++;
+    }
+    expect(taps, inInclusiveRange(1, 11));
+    expect(arrow('A month earlier').onPressed, isNull);
+
+    // And back the other way returns to the window's own months.
+    while (arrow('A month later').onPressed != null) {
+      await tester.tap(find.byTooltip('A month later'));
+      await tester.pumpAndSettle();
+    }
+    expect(find.text(named(DateTime(today.year, today.month))), findsOneWidget);
+  });
+
   testWidgets('hovering a bar names what went into it', (tester) async {
     await openGraphs(tester);
     // The bars are painted, so the tooltip is what proves the hover landed.

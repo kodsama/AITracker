@@ -62,11 +62,30 @@ class CalendarHeatmap extends StatefulWidget {
 class _CalendarHeatmapState extends State<CalendarHeatmap> {
   DateTime? _hovered;
 
-  /// Every month the period touches.
+  /// How many months the arrows have moved it from the window's own.
+  int _shift = 0;
+
+  @override
+  void didUpdateWidget(CalendarHeatmap old) {
+    super.didUpdateWidget(old);
+    // A new window is a new place to be looking, so the arrows start again.
+    if (old.period.start != widget.period.start ||
+        old.period.end != widget.period.end) {
+      _shift = 0;
+    }
+  }
+
+  /// Every month the period touches, moved by whatever the arrows have done.
   List<DateTime> get _months {
     final months = <DateTime>[];
-    var at = DateTime(widget.period.start.year, widget.period.start.month);
-    final last = DateTime(widget.period.end.year, widget.period.end.month);
+    var at = DateTime(
+      widget.period.start.year,
+      widget.period.start.month + _shift,
+    );
+    final last = DateTime(
+      widget.period.end.year,
+      widget.period.end.month + _shift,
+    );
     while (!at.isAfter(last)) {
       // A period ending exactly at midnight on the first does not reach into
       // that month.
@@ -75,9 +94,34 @@ class _CalendarHeatmapState extends State<CalendarHeatmap> {
       at = DateTime(at.year, at.month + 1);
     }
     if (months.isEmpty) {
-      months.add(DateTime(widget.period.start.year, widget.period.start.month));
+      months.add(
+        DateTime(widget.period.start.year, widget.period.start.month + _shift),
+      );
     }
     return months;
+  }
+
+  /// The months the archive has anything in, as a range.
+  (DateTime, DateTime)? get _held {
+    if (widget.days.isEmpty) return null;
+    final days = widget.days.keys.toList()..sort();
+    return (
+      DateTime(days.first.year, days.first.month),
+      DateTime(days.last.year, days.last.month),
+    );
+  }
+
+  /// Whether moving [by] months would still leave some history on screen.
+  ///
+  /// Moving until the work has scrolled off shows nothing but empty squares,
+  /// so the arrow stops one short of that.
+  bool _canMove(int by, List<DateTime> drawn) {
+    final held = _held;
+    if (held == null || drawn.isEmpty) return false;
+    final (first, last) = held;
+    final from = DateTime(drawn.first.year, drawn.first.month + by);
+    final to = DateTime(drawn.last.year, drawn.last.month + by);
+    return !to.isBefore(first) && !from.isAfter(last);
   }
 
   /// [months] padded with the months either side until [wanted] blocks are
@@ -112,7 +156,10 @@ class _CalendarHeatmapState extends State<CalendarHeatmap> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final (columns, cell) = _fit(constraints.maxWidth, months.length);
+        // The arrows take a column each side, so the months fit in what is
+        // left rather than in the whole card.
+        final inner = math.max(constraints.maxWidth - 2 * _Arrow.width, 1.0);
+        final (columns, cell) = _fit(inner, months.length);
         final blocks = _pad(months, columns);
         final blockWidth =
             CalendarHeatmap.labelWidth + 7 * (cell + CalendarHeatmap.gap);
@@ -120,30 +167,51 @@ class _CalendarHeatmapState extends State<CalendarHeatmap> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Wrap(
-              spacing: math.max(
-                0,
-                (constraints.maxWidth - columns * blockWidth) /
-                    math.max(columns - 1, 1),
-              ),
-              runSpacing: 20,
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                for (final month in blocks)
-                  SizedBox(
-                    width: blockWidth,
-                    child: _Month(
-                      month: month,
-                      cell: cell,
-                      days: widget.days,
-                      period: widget.period,
-                      busiest: busiest,
-                      hovered: _hovered,
-                      colorOf: widget.colorOf,
-                      amount: widget.amount,
-                      onHover: (day) => setState(() => _hovered = day),
-                      onTapped: widget.onDayTapped,
+                _Arrow(
+                  icon: Icons.chevron_left,
+                  tooltip: 'A month earlier',
+                  onPressed: _canMove(-1, blocks)
+                      ? () => setState(() => _shift--)
+                      : null,
+                ),
+                Expanded(
+                  child: Wrap(
+                    spacing: math.max(
+                      0,
+                      (inner - columns * blockWidth) /
+                          math.max(columns - 1, 1),
                     ),
+                    runSpacing: 20,
+                    children: [
+                      for (final month in blocks)
+                        SizedBox(
+                          width: blockWidth,
+                          child: _Month(
+                            month: month,
+                            cell: cell,
+                            days: widget.days,
+                            period: widget.period,
+                            busiest: busiest,
+                            hovered: _hovered,
+                            colorOf: widget.colorOf,
+                            amount: widget.amount,
+                            onHover: (day) => setState(() => _hovered = day),
+                            onTapped: widget.onDayTapped,
+                          ),
+                        ),
+                    ],
                   ),
+                ),
+                _Arrow(
+                  icon: Icons.chevron_right,
+                  tooltip: 'A month later',
+                  onPressed: _canMove(1, blocks)
+                      ? () => setState(() => _shift++)
+                      : null,
+                ),
               ],
             ),
             const SizedBox(height: 14),
@@ -191,6 +259,36 @@ class _CalendarHeatmapState extends State<CalendarHeatmap> {
     final rows = (months / fits).ceil();
     return (months / rows).ceil();
   }
+}
+
+/// One of the two arrows that move the calendar a month.
+class _Arrow extends StatelessWidget {
+  const _Arrow({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  /// How much width one takes, so the months can be fitted into the rest.
+  static const double width = 40;
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: width,
+    // Level with the first row of days rather than the month's name.
+    child: Padding(
+      padding: const EdgeInsets.only(top: 22),
+      child: IconButton(
+        tooltip: tooltip,
+        icon: Icon(icon),
+        onPressed: onPressed,
+      ),
+    ),
+  );
 }
 
 class _Month extends StatelessWidget {

@@ -39,7 +39,9 @@ covers rather than only the window on screen.
 
 The app then holds the whole history, and the window is a filter over what is
 already in hand: moving it, stepping it or switching how it is counted touches
-no storage at all. Only a rescan goes back, and only for what is new.
+no storage at all. Only a rescan goes back, and only for what is new. The
+calendar has an arrow either side to walk through the months without changing
+the window, for the same reason: it is all in memory.
 
 The archive holds the events rather than the blocks, so the idle gap stays a
 setting: change it and the whole history is read again through the new one,
