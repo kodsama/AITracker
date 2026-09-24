@@ -300,6 +300,29 @@ void main() {
       expect((result['config']! as Map)['idle_gap_minutes'], 60);
     });
 
+    test('a client that names no configuration is told the usual one', () async {
+      final was = AiTrackerConfig.environment;
+      addTearDown(() => AiTrackerConfig.environment = was);
+      AiTrackerConfig.environment = {'AITRACKER_CONFIG': configPath};
+
+      final unnamed = McpServer(
+        tools: buildTools(configPath: null, overridesPath: overridesPath),
+      );
+      final response = await unnamed.handle({
+        'jsonrpc': '2.0',
+        'id': 1,
+        'method': 'tools/call',
+        'params': {'name': 'get_config', 'arguments': <String, Object?>{}},
+      });
+      final content =
+          ((response!['result']! as Map)['content']! as List).first as Map;
+      final result =
+          json.decode(content['text']! as String) as Map<String, Object?>;
+
+      expect(result['path'], configPath);
+      expect((result['config']! as Map)['idle_gap_minutes'], 60);
+    });
+
     test('edit_blocks strikes blocks out in one batch, and clears them again',
         () async {
       final blocks = (await call('list_hours'))['blocks']! as List;
@@ -483,6 +506,12 @@ void main() {
       final reported = await call('read_back_changes');
       expect(reported['adopted'], 0);
       expect((reported['changes']! as List), hasLength(1));
+
+      // Named by its key, the change is the one that comes back.
+      final named = await call('read_back_changes', {
+        'keys': [mapped['key']],
+      });
+      expect((named['changes']! as List), hasLength(1));
 
       final adopted = await call('read_back_changes', {'adopt': true});
       expect(adopted['adopted'], 1);

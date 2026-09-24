@@ -375,12 +375,63 @@ void main() {
     expect(state.mcpPort, isNotNull);
     expect(find.textContaining('Listening on 127.0.0.1:'), findsOneWidget);
 
+    // And the switch itself puts it away again. The switch hands the save to
+    // the state rather than to the test, so the test waits for the socket to
+    // close rather than assuming it already has.
+    await tester.runAsync(() async {
+      await tester.tap(find.text('Listen on localhost'));
+      for (var waited = 0; waited < 200 && state.mcpPort != null; waited++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    });
+    await tester.pumpAndSettle();
+
+    expect(state.config.mcpEnabled, isFalse);
+    expect(state.mcpPort, isNull);
+    expect(find.text('Off'), findsOneWidget);
+  });
+
+  testWidgets('a new key is issued, and the endpoint takes it up', (
+    tester,
+  ) async {
+    await openSettings(tester);
+    await scrollTo(tester, find.text('Listen on localhost'));
+    await tester.enterText(find.widgetWithText(TextField, 'Port'), '0');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    await tester.runAsync(
+      () => state.save(state.config.copyWith(mcpEnabled: true)),
+    );
+    await tester.pumpAndSettle();
+    final was = state.mcpToken;
+
+    // Issued while it is listening, so the endpoint comes back up on the new
+    // key rather than staying up on the old one.
+    late String now;
+    await tester.runAsync(() async => now = await state.regenerateMcpToken());
+    await tester.pumpAndSettle();
+
+    expect(now, isNot(was));
+    expect(state.mcpToken, now);
+    expect(state.mcpPort, isNotNull);
+
     await tester.runAsync(
       () => state.save(state.config.copyWith(mcpEnabled: false)),
     );
     await tester.pumpAndSettle();
-    expect(state.mcpPort, isNull);
-    expect(find.text('Off'), findsOneWidget);
+  });
+
+  testWidgets('an archive with nothing in it says where it would be', (
+    tester,
+  ) async {
+    // A state whose transcripts are gone, so the archive has no span to name.
+    Directory('${fixture.root.path}/projects').deleteSync(recursive: true);
+    await openSettings(tester);
+    await scrollTo(tester, find.text('History'));
+
+    // The path stands in for the span it cannot name.
+    expect(find.text(state.historyPath), findsOneWidget);
+    expect(find.textContaining('MB\n'), findsNothing);
   });
 
   testWidgets('both folders can be shown in Finder', (tester) async {

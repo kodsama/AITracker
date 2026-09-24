@@ -71,6 +71,18 @@ void main() {
       find.widgetWithText(FilledButton, 'Write'),
     );
     expect(write.onPressed, isNull);
+
+    // And ticked again it is back in.
+    await tester.tap(find.text('CSV and Excel'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('not included'), findsNothing);
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Write'))
+          .onPressed,
+      isNotNull,
+    );
   });
 
   testWidgets('a refusal is shown rather than a number', (tester) async {
@@ -135,6 +147,18 @@ void main() {
     probe.dispose();
 
     await openSync(tester);
+
+    // Unticked, there is nothing to take and the button says as much; ticked
+    // again, it offers to take it.
+    expect(find.widgetWithText(FilledButton, 'Take and write'), findsOneWidget);
+    await tester.tap(find.byType(CheckboxListTile).first);
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(FilledButton, 'Write'), findsOneWidget);
+
+    await tester.tap(find.byType(CheckboxListTile).first);
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(FilledButton, 'Take and write'), findsOneWidget);
+
     await tester.tap(find.widgetWithText(FilledButton, 'Take and write'));
     await tester.pumpAndSettle();
 

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:aitracker_engine/aitracker_engine.dart';
+import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -207,6 +208,48 @@ void main() {
 
     // And once everything is worked out, nothing is asked for again.
     expect(ask(40).unworked, 0);
+  });
+
+  test('a scan that fails comes back as a failure, not a silence', () async {
+    // One good scan first, so the archive is there to damage.
+    await worker.scan(
+      config: config,
+      overrides: OverrideStore(),
+      window: window(),
+    );
+
+    // Then damaged under the worker while it holds it open.
+    final db = sqlite3.open('${temp.path}/history.db');
+    db.execute('drop table events');
+    db.close();
+
+    await expectLater(
+      worker.scan(
+        config: config,
+        overrides: OverrideStore(),
+        window: window(),
+      ),
+      throwsA(isA<Object>()),
+    );
+
+    // And it is still answering afterwards.
+    final restore = sqlite3.open('${temp.path}/history.db');
+    restore.execute('''
+      create table events (
+        file_id integer not null, at integer not null, directory text not null,
+        session text not null, input integer not null, output integer not null,
+        cache_write integer not null, cache_read integer not null,
+        model text not null default ''
+      )
+    ''');
+    restore.close();
+
+    final after = await worker.scan(
+      config: config,
+      overrides: OverrideStore(),
+      window: window(),
+    );
+    expect(after.wallClock, isNotEmpty);
   });
 
   test('a stopped worker answers nothing rather than hanging', () async {

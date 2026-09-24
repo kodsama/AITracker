@@ -228,6 +228,24 @@ void main() {
     expect(find.text('M'), findsWidgets);
   });
 
+  testWidgets('leaving a day clears what it said', (tester) async {
+    await openGraphs(tester);
+    await scrollTo(tester, find.text('Calendar'));
+
+    final today = DateTime.now();
+    final key =
+        'day-${today.year}-${today.month.toString().padLeft(2, '0')}-'
+        '${today.day.toString().padLeft(2, '0')}';
+    final pointer = await hover(tester, find.byKey(Key(key)));
+    expect(find.textContaining('idbuddy'), findsWidgets);
+
+    await pointer.moveTo(const Offset(5, 5));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Hover a day to see what it held, click it to open it.'),
+        findsOneWidget);
+  });
+
   testWidgets('the breakdown sorts by any column, both ways', (tester) async {
     await openGraphs(tester);
     await scrollTo(tester, find.text('Breakdown'));

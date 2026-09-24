@@ -6,7 +6,7 @@
 #   bash tool/coverage.sh [min-percent]
 set -euo pipefail
 
-MIN="${1:-99}"
+MIN="${1:-99.5}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 status=0
 

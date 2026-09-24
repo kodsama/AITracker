@@ -100,6 +100,25 @@ void main() {
       state.blocks.map((b) => b.description),
       everyElement('pairing on the importer'),
     );
+
+    // And the keyboard does what the button does.
+    await tester.tap(find.text('Rename'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      ),
+      'reading the importer',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(
+      state.blocks.map((b) => b.description),
+      everyElement('reading the importer'),
+    );
   });
 
   testWidgets('a batch edit can be cancelled', (tester) async {
@@ -358,5 +377,47 @@ void main() {
           .message,
       'claude-opus-5  50%\nclaude-sonnet-5  50%',
     );
+  });
+
+  testWidgets('the search box follows a query that came from elsewhere', (
+    tester,
+  ) async {
+    await openHours(tester);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Search the description, project or folder'),
+      'unmapped',
+    );
+    await tester.pumpAndSettle();
+    expect(state.query, 'unmapped');
+
+    // Back clears the search, and the box has to follow it.
+    await state.goBack();
+    await tester.pumpAndSettle();
+
+    expect(state.query, '');
+    expect(
+      tester
+          .widget<TextField>(
+            find.widgetWithText(
+              TextField,
+              'Search the description, project or folder',
+            ),
+          )
+          .controller
+          ?.text,
+      '',
+    );
+  });
+
+  testWidgets('a row is selected by clicking it, not only its box', (
+    tester,
+  ) async {
+    await openHours(tester);
+
+    await tester.tap(find.text('AI: idbuddy').first);
+    await tester.pumpAndSettle();
+
+    expect(state.selected, hasLength(1));
   });
 }

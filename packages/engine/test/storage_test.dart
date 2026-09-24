@@ -196,6 +196,22 @@ void main() {
       ]);
     });
 
+    test('a configuration naming no folders sweeps for them', () {
+      final was = AiTrackerConfig.environment;
+      addTearDown(() => AiTrackerConfig.environment = was);
+      AiTrackerConfig.environment = {'HOME': temp.path};
+      Directory('${temp.path}/.claude/projects').createSync(recursive: true);
+      final path = '${temp.path}/bare.json';
+      File(path).writeAsStringSync('{"idle_gap_minutes": 20}');
+
+      final config = AiTrackerConfig.load(path);
+
+      // No sources key at all means a configuration nobody has written yet,
+      // so the machine is swept rather than read as "look nowhere".
+      expect(config.sources, ['${temp.path}/.claude/projects']);
+      expect(config.idleGap, const Duration(minutes: 20));
+    });
+
     test('a configuration file holding the wrong shape falls back', () {
       final path = '${temp.path}/config.json';
       File(path).writeAsStringSync('"not a config"');

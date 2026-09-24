@@ -241,6 +241,10 @@ void main() {
   test('the endpoint can be opened and closed from the state', () async {
     expect(state.tokenPath, endsWith('mcp-token'));
 
+    // Port 0 rather than the configured one: a test that binds a fixed port
+    // fails whenever something else on the machine happens to hold it.
+    await state.save(state.config.copyWith(mcpPort: 0));
+
     await state.startMcp();
     expect(state.mcpPort, isNotNull);
 

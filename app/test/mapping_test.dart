@@ -246,7 +246,9 @@ void main() {
 
     await tester.tap(find.text('Colours…'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Export all'));
+
+    // One project at a time rather than all of them: the row's own control.
+    await tester.tap(find.text('Export').last);
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Apply'));
     await tester.pumpAndSettle();
@@ -292,10 +294,15 @@ void main() {
     expect(find.text('RiACT - Code'), findsWidgets);
     expect(find.text('Byte Buddies - idbuddy'), findsWidgets);
 
-    // Typing narrows it.
+    // Typing narrows it, whether it starts the name or sits inside it.
     await tester.enterText(inDialog(find.byType(TextField)).at(0), 'ria');
     await tester.pumpAndSettle();
     expect(find.text('RiACT - Code'), findsWidgets);
+
+    await tester.enterText(inDialog(find.byType(TextField)).at(0), 'buddies');
+    await tester.pumpAndSettle();
+    expect(find.text('Byte Buddies - idbuddy'), findsWidgets);
+    expect(find.text('RiACT - Code'), findsNothing);
 
     await tester.enterText(inDialog(find.byType(TextField)).at(0), 'Brand new');
     await tester.pumpAndSettle();

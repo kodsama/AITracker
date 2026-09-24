@@ -374,23 +374,12 @@ class _Span {
   final DateTime start;
   DateTime end;
   final Set<String> sessions;
-  TokenUsage tokens = TokenUsage.zero;
-  final Map<String, int> models = {};
 
-  void add(ActivityEvent event) {
-    tokens += event.tokens;
-    if (event.model.isNotEmpty) {
-      models[event.model] = (models[event.model] ?? 0) + 1;
-    }
-  }
-
+  /// Takes in a span this one now covers. What was spent in it is not taken
+  /// in with it: the events are charged to the blocks afterwards, by time.
   void absorb(_Span other) {
     end = other.end.isAfter(end) ? other.end : end;
     sessions.addAll(other.sessions);
-    tokens += other.tokens;
-    for (final entry in other.models.entries) {
-      models[entry.key] = (models[entry.key] ?? 0) + entry.value;
-    }
   }
 }
 

@@ -379,6 +379,28 @@ void main() {
     expect(reopened.summary().events, 1);
   });
 
+  test('a format the archive does not recognise is worked out again', () {
+    final file = write('a.jsonl', [line('2026-09-01T09:00:00.000Z')]);
+    ingest();
+
+    // A row written by a version that named the format something this one
+    // has never heard of.
+    final db = sqlite3.open('${temp.path}/history.db');
+    db.execute("update files set format = 'telepathy'");
+    db.close();
+
+    file.writeAsStringSync(
+      '${line('2026-09-01T09:00:00.000Z')}\n'
+      '${line('2026-09-01T09:30:00.000Z')}\n',
+    );
+
+    // It reads as unknown, which means the format is worked out from the line
+    // again rather than the rest of the file being thrown away.
+    expect(ingest(), 1);
+    expect(store.events(), hasLength(2));
+    expect(store.events().last.directory, '/repo');
+  });
+
   group('working out the days nobody asked for', () {
     int stored() => store
         .blocks(
