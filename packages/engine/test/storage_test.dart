@@ -50,6 +50,23 @@ void main() {
       expect(store['a']!.excluded, isTrue);
     });
 
+    test('an edit can hand its project back to the rules', () {
+      final pinned = BlockOverride(
+        project: 'BB - idbuddy',
+        description: 'pairing',
+        start: DateTime(2026, 9, 1, 9),
+      );
+
+      expect(pinned.withoutProject.project, isNull);
+      expect(pinned.withoutProject.description, 'pairing');
+      expect(pinned.withoutProject.start, DateTime(2026, 9, 1, 9));
+      expect(pinned.withoutProject.isEmpty, isFalse);
+      expect(
+        const BlockOverride(project: 'BB - idbuddy').withoutProject.isEmpty,
+        isTrue,
+      );
+    });
+
     test('a null override clears the entry', () {
       final store = OverrideStore()
         ..set('a', const BlockOverride(excluded: true))

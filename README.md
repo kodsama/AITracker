@@ -78,6 +78,8 @@ The app
 `Hours` shows the blocks, the totals per project and what is unmapped. Select
 any number of rows to reassign, rename or strike them out in one go; the edits
 are kept beside the measurement and survive re-reading the transcripts.
+Assigning a project to a session in a folder no rule covers writes the rule, so
+the sessions that follow land there by themselves.
 
 `Graphs` draws the same hours: stacked bars over the period, a day at a time, a
 week at a time or a month at a time depending on how wide the window is, and a
@@ -100,11 +102,12 @@ mapping remembers they are the same work.
 `Settings` has the idle gap, the shortest block worth counting, the sinks, and
 the MCP endpoint.
 
-Sync runs both ways and previews first. The dialog shows what WorkingHours has
-had done to the units this tool wrote there, moved to another project, renamed
-or trimmed, and what each target would be given; nothing is written or taken
-until you press the button. A correction taken back is kept as a hand edit, so
-the next scan does not undo it.
+Sync rereads the transcripts, so a session that ended a minute ago is on the
+screen. Export previews first and runs both ways: the dialog shows what
+WorkingHours has had done to the units this tool wrote there, moved to another
+project, renamed or trimmed, and what each target would be given; nothing is
+written or taken until you press the button. A correction taken back is kept as
+a hand edit, so the next scan does not undo it.
 
 Sinks
 -----

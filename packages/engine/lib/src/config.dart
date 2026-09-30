@@ -493,12 +493,16 @@ class AiTrackerConfig {
   /// one rule reads the same against the real path (`Byte Buddies/idbuddy`) and
   /// against the flattened folder name Claude Code stores transcripts under
   /// (`byte-buddies-idbuddy`).
-  String? projectFor(String directory) {
+  String? projectFor(String directory) =>
+      ruleFor(directory)?.project ?? fallbackProject;
+
+  /// The first rule that covers [directory], or null when none does.
+  ProjectRule? ruleFor(String directory) {
     final haystack = _fold(directory);
     for (final rule in rules) {
-      if (haystack.contains(_fold(rule.match))) return rule.project;
+      if (haystack.contains(_fold(rule.match))) return rule;
     }
-    return fallbackProject;
+    return null;
   }
 
   static String _fold(String value) =>

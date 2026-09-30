@@ -5,17 +5,21 @@ import '../measures.dart';
 import '../state/app_state.dart';
 import 'period_picker.dart';
 
-/// The top of the Hours screen: how much time, over what window, and the button
-/// that files it.
+/// The top of the Hours screen: how much time, over what window, the button
+/// that rereads the transcripts and the button that files what they hold.
 class SummaryHeader extends StatelessWidget {
   /// Creates the header.
-  const SummaryHeader({required this.state, required this.onSync, super.key});
+  const SummaryHeader({
+    required this.state,
+    required this.onExport,
+    super.key,
+  });
 
   /// App state.
   final AppState state;
 
-  /// Called when the sync button is pressed.
-  final VoidCallback onSync;
+  /// Called when the export button is pressed.
+  final VoidCallback onExport;
 
   @override
   Widget build(BuildContext context) {
@@ -88,18 +92,34 @@ class SummaryHeader extends StatelessWidget {
                         ],
                       ),
                     ),
+                  // Sync is greyed while a scan runs: pressing it then would
+                  // only start the same read over.
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4, right: 8),
+                    child: roomForLabel
+                        ? FilledButton.tonalIcon(
+                            onPressed: state.loading ? null : state.refresh,
+                            icon: const Icon(Icons.sync, size: 20),
+                            label: const Text('Sync'),
+                          )
+                        : IconButton.filledTonal(
+                            tooltip: 'Sync',
+                            onPressed: state.loading ? null : state.refresh,
+                            icon: const Icon(Icons.sync),
+                          ),
+                  ),
                   Padding(
                     padding: const EdgeInsets.only(bottom: 4),
                     child: roomForLabel
                         ? FilledButton.icon(
-                            onPressed: state.blocks.isEmpty ? null : onSync,
-                            icon: const Icon(Icons.sync, size: 20),
-                            label: const Text('Sync…'),
+                            onPressed: state.blocks.isEmpty ? null : onExport,
+                            icon: const Icon(Icons.upload, size: 20),
+                            label: const Text('Export…'),
                           )
                         : IconButton.filled(
-                            tooltip: 'Sync',
-                            onPressed: state.blocks.isEmpty ? null : onSync,
-                            icon: const Icon(Icons.sync),
+                            tooltip: 'Export',
+                            onPressed: state.blocks.isEmpty ? null : onExport,
+                            icon: const Icon(Icons.upload),
                           ),
                   ),
                 ],

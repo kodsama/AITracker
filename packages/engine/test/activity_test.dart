@@ -420,6 +420,12 @@ void main() {
       );
       expect(config.projectFor('/Users/me/Developer/Byte-Buddies/x'), 'BB - other');
       expect(config.projectFor('/Users/me/elsewhere'), 'Unsorted');
+      // The fallback is not a rule: what it catches has none.
+      expect(
+        config.ruleFor('/Users/me/Developer/Byte-Buddies/x')?.match,
+        'byte-buddies',
+      );
+      expect(config.ruleFor('/Users/me/elsewhere'), isNull);
     });
 
     test('leaves unmatched directories unassigned without a fallback', () {

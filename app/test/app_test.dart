@@ -107,7 +107,8 @@ void main() {
   testWidgets('a batch edit reassigns every selected block', (tester) async {
     final state = await pump(tester);
 
-    await tester.tap(find.byType(Checkbox).last);
+    // Newest first, so the first row is the afternoon in the unmapped folder.
+    await tester.tap(find.byType(Checkbox).first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Assign project'));
     await tester.pumpAndSettle();
@@ -117,6 +118,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(state.byProject.keys, contains('Paperweight AI - x'));
+    // The folder is ruled from now on, not only this one session.
+    expect(
+      state.config.rules.map((rule) => rule.project),
+      contains('Paperweight AI - x'),
+    );
   });
 
   testWidgets('mapping the stray directory from the Projects screen', (
@@ -476,15 +482,15 @@ void main() {
     expect(find.text('Create "Brand new"'), findsOneWidget);
   });
 
-  testWidgets('sync shows both directions and only writes when told to', (
+  testWidgets('export shows both directions and only writes when told to', (
     tester,
   ) async {
     await pump(tester);
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Sync…'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Export…'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Sync'), findsOneWidget);
+    expect(find.text('Export'), findsOneWidget);
     // Both directions are named, with nothing to take back here.
     expect(
       find.textContaining('Nothing has been changed in WorkingHours'),
@@ -496,7 +502,7 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Write'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Synced'), findsOneWidget);
+    expect(find.text('Exported'), findsOneWidget);
     expect(File('${temp.path}/hours.csv').readAsLinesSync(), hasLength(3));
   });
 }

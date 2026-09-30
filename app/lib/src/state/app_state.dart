@@ -4,6 +4,7 @@ import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:aitracker_mcp/aitracker_mcp.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show Brightness, Color;
+import 'package:path/path.dart' as p;
 
 import '../measures.dart';
 import '../theme.dart';
@@ -795,6 +796,36 @@ class AppState extends ChangeNotifier {
     }
     _overrides.save(overridesPath);
     await refresh();
+  }
+
+  /// Assigns [project] to every selected block.
+  ///
+  /// A folder no rule covers gets one, so the sessions that follow land on the
+  /// same project without being assigned again, and the blocks themselves are
+  /// left to that rule. A block in a folder already ruled to another project
+  /// is pinned on its own: one session that was not what its folder usually
+  /// is.
+  Future<void> assignSelected(String project) async {
+    var config = _config;
+    for (final block in blocks.where((b) => _selected.contains(b.key))) {
+      final directory = block.block.directory;
+      if (config.ruleFor(directory) == null) {
+        config = config.copyWith(
+          rules: [
+            ...config.rules,
+            ProjectRule(match: p.basename(directory), project: project),
+          ],
+        );
+      }
+      if (config.ruleFor(directory)!.project == project) {
+        final left = _overrides[block.key]?.withoutProject;
+        _overrides.set(block.key, left == null || left.isEmpty ? null : left);
+      } else {
+        _overrides.merge(block.key, BlockOverride(project: project));
+      }
+    }
+    _overrides.save(overridesPath);
+    await save(config);
   }
 
   /// Drops the hand edits on every selected block.

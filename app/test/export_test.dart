@@ -21,14 +21,14 @@ void main() {
     fixture.dispose();
   });
 
-  Future<void> openSync(WidgetTester tester) async {
+  Future<void> openExport(WidgetTester tester) async {
     tester.view.physicalSize = const Size(1440, 1000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     state = fixture.state();
     await tester.pumpWidget(AiTrackerApp(state: state));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, 'Sync…'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Export…'));
     await tester.pumpAndSettle();
   }
 
@@ -51,9 +51,9 @@ void main() {
   testWidgets('with nothing changed it offers only the way out', (
     tester,
   ) async {
-    await openSync(tester);
+    await openExport(tester);
 
-    expect(find.text('Sync'), findsOneWidget);
+    expect(find.text('Export'), findsOneWidget);
     expect(
       find.textContaining('Nothing has been changed in WorkingHours'),
       findsOneWidget,
@@ -62,7 +62,7 @@ void main() {
   });
 
   testWidgets('a target can be left out of the run', (tester) async {
-    await openSync(tester);
+    await openExport(tester);
     await tester.tap(find.text('CSV and Excel'));
     await tester.pumpAndSettle();
 
@@ -88,7 +88,7 @@ void main() {
   testWidgets('a refusal is shown rather than a number', (tester) async {
     fixture.config(workingHours: true).save(fixture.configPath);
 
-    await openSync(tester);
+    await openExport(tester);
 
     expect(find.textContaining('no WorkingHours database'), findsOneWidget);
   });
@@ -99,7 +99,7 @@ void main() {
     fixture.writeLedger();
     fixture.config(workingHours: true).save(fixture.configPath);
 
-    await openSync(tester);
+    await openExport(tester);
 
     expect(find.text('Close WorkingHours for the write'), findsOneWidget);
     await tester.tap(find.text('Close WorkingHours for the write'));
@@ -108,7 +108,7 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Write'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Synced'), findsOneWidget);
+    expect(find.text('Exported'), findsOneWidget);
     expect(find.textContaining('wrote 1 blocks'), findsWidgets);
     expect(find.textContaining('backup:'), findsOneWidget);
   });
@@ -123,7 +123,7 @@ void main() {
     writeChangedUnit(probe.blocks.firstWhere((b) => b.project != null));
     probe.dispose();
 
-    await openSync(tester);
+    await openExport(tester);
 
     expect(find.textContaining('Changed in WorkingHours'), findsOneWidget);
     expect(find.textContaining('renamed in the ledger'), findsWidgets);
@@ -146,7 +146,7 @@ void main() {
     writeChangedUnit(block);
     probe.dispose();
 
-    await openSync(tester);
+    await openExport(tester);
 
     // Unticked, there is nothing to take and the button says as much; ticked
     // again, it offers to take it.
@@ -162,7 +162,7 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Take and write'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Synced'), findsOneWidget);
+    expect(find.text('Exported'), findsOneWidget);
     expect(
       state.blocks.firstWhere((b) => b.key == block.key).description,
       'renamed in the ledger',
@@ -172,13 +172,13 @@ void main() {
   testWidgets('with no target switched on it says so', (tester) async {
     fixture.config(tabular: false).save(fixture.configPath);
 
-    await openSync(tester);
+    await openExport(tester);
 
     expect(find.text('No target is switched on. See Settings.'), findsOneWidget);
   });
 
   testWidgets('the files it wrote are named', (tester) async {
-    await openSync(tester);
+    await openExport(tester);
 
     await tester.tap(find.widgetWithText(FilledButton, 'Write'));
     await tester.pumpAndSettle();
@@ -188,6 +188,6 @@ void main() {
 
     await tester.tap(find.text('Done'));
     await tester.pumpAndSettle();
-    expect(find.text('Synced'), findsNothing);
+    expect(find.text('Exported'), findsNothing);
   });
 }

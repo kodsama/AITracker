@@ -53,6 +53,17 @@ class BlockOverride {
     if (end != null) 'end': end!.toIso8601String(),
   };
 
+  /// The same edit with the project left to the rules again.
+  BlockOverride get withoutProject => BlockOverride(
+    description: description,
+    excluded: excluded,
+    start: start,
+    end: end,
+  );
+
+  /// Whether this edit changes nothing at all.
+  bool get isEmpty => toJson().isEmpty;
+
   /// A copy with the given fields replaced.
   BlockOverride merge(BlockOverride other) => BlockOverride(
     project: other.project ?? project,

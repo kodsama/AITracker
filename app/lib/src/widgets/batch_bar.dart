@@ -78,7 +78,7 @@ class BatchBar extends StatelessWidget {
       ),
     );
     if (chosen == null || chosen.isEmpty) return;
-    await state.editSelected(BlockOverride(project: chosen));
+    await state.assignSelected(chosen);
   }
 
   Future<void> _rename(BuildContext context) async {

@@ -263,16 +263,44 @@ void main() {
 
     expect(find.text('with an AI assistant'), findsNothing);
     expect(find.text('1h 30m'), findsWidgets);
-    // Still room for the button to say what it is.
-    expect(find.widgetWithText(FilledButton, 'Sync…'), findsOneWidget);
+    // Still room for the buttons to say what they are.
+    expect(find.widgetWithText(FilledButton, 'Sync'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Export…'), findsOneWidget);
   });
 
-  testWidgets('narrower still, the button becomes its icon', (tester) async {
+  testWidgets('narrower still, the buttons become their icons', (
+    tester,
+  ) async {
     await openHours(tester, size: const Size(620, 900));
 
     expect(find.byTooltip('Sync'), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, 'Sync…'), findsNothing);
+    expect(find.byTooltip('Export'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Sync'), findsNothing);
+    expect(find.widgetWithText(FilledButton, 'Export…'), findsNothing);
     expect(find.text('1h 30m'), findsWidgets);
+  });
+
+  testWidgets('sync reads what was written since the last scan', (
+    tester,
+  ) async {
+    await openHours(tester);
+    expect(find.text('1h 30m'), findsWidgets);
+
+    // The mapped session carries on for a quarter of an hour after the first
+    // scan: short of the idle gap that keeps the afternoon session apart.
+    final today = DateTime.now();
+    final later = DateTime(today.year, today.month, today.day, 10, 45)
+        .toUtc()
+        .toIso8601String();
+    File('${fixture.root.path}/projects/p/mapped.jsonl').writeAsStringSync(
+      '{"timestamp":"$later","cwd":"/Users/me/Developer/idbuddy"}\n',
+      mode: FileMode.append,
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Sync'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('1h 45m'), findsWidgets);
+    expect(find.text('1h 30m'), findsNothing);
   });
 
   testWidgets('counting per project says so beside the total', (tester) async {

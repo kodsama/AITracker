@@ -112,6 +112,75 @@ void main() {
     expect(state.overrideFor(key), isNull);
   });
 
+  test('assigning a stray writes the rule its later sessions follow', () async {
+    final stray = state.blocks.firstWhere((b) => b.project == null);
+    state.toggle(stray.key);
+
+    await state.assignSelected('Perso - mystery');
+
+    expect(state.config.rules.last.match, 'mystery');
+    expect(state.config.rules.last.project, 'Perso - mystery');
+    // The rule carries the block; there is nothing to pin.
+    expect(state.overrideFor(stray.key), isNull);
+    expect(state.strays, isEmpty);
+
+    // A session in the same folder that evening, well past the idle gap.
+    final today = DateTime.now();
+    String at(int hour, int minute) =>
+        DateTime(today.year, today.month, today.day, hour, minute)
+            .toUtc()
+            .toIso8601String();
+    File('${fixture.root.path}/projects/p/evening.jsonl').writeAsStringSync(
+      '{"timestamp":"${at(17, 0)}","cwd":"/Users/me/Developer/mystery"}\n'
+      '{"timestamp":"${at(17, 30)}","cwd":"/Users/me/Developer/mystery"}\n',
+    );
+    await state.refresh();
+
+    expect(state.strays, isEmpty);
+    expect(
+      state.blocks.where((b) => b.project == 'Perso - mystery'),
+      hasLength(2),
+    );
+  });
+
+  test("assigning against the folder's rule pins that block alone", () async {
+    final mapped = state.blocks.firstWhere((b) => b.project != null);
+    state.toggle(mapped.key);
+
+    await state.assignSelected('Perso - mine');
+
+    expect(state.config.rules, hasLength(1));
+    expect(state.overrideFor(mapped.key)!.project, 'Perso - mine');
+    expect(
+      state.blocks.firstWhere((b) => b.key == mapped.key).project,
+      'Perso - mine',
+    );
+  });
+
+  test('assigning what the rule already says lets the pin go', () async {
+    final mapped = state.blocks.firstWhere((b) => b.project != null);
+    state.toggle(mapped.key);
+    await state.editSelected(const BlockOverride(description: 'pairing'));
+    await state.assignSelected('Perso - mine');
+
+    await state.assignSelected('Byte Buddies - idbuddy');
+
+    // The description is still a hand edit; the project is the rule's again.
+    expect(state.overrideFor(mapped.key)!.project, isNull);
+    expect(state.overrideFor(mapped.key)!.description, 'pairing');
+    expect(
+      state.blocks.firstWhere((b) => b.key == mapped.key).project,
+      'Byte Buddies - idbuddy',
+    );
+
+    await state.clearSelectedEdits();
+    await state.assignSelected('Perso - mine');
+    await state.assignSelected('Byte Buddies - idbuddy');
+
+    // With nothing else edited there is no entry left at all.
+    expect(state.overrideFor(mapped.key), isNull);
+  });
+
   test('a mapping is saved and read back', () async {
     await state.saveLink(
       const ProjectLink(

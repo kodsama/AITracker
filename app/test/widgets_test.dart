@@ -15,7 +15,7 @@ import 'package:aitracker/src/widgets/project_field.dart';
 import 'package:aitracker/src/widgets/project_mapping.dart';
 import 'package:aitracker/src/widgets/stacked_bars.dart';
 import 'package:aitracker/src/widgets/summary_header.dart';
-import 'package:aitracker/src/widgets/sync_dialog.dart';
+import 'package:aitracker/src/widgets/export_dialog.dart';
 import 'package:aitracker_engine/aitracker_engine.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -66,13 +66,13 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('the header shows the totals and a way to sync', (tester) async {
-    var synced = 0;
+  testWidgets('the header shows the totals and a way to export', (tester) async {
+    var exported = 0;
 
-    await show(tester, SummaryHeader(state: state, onSync: () => synced++));
-    await tester.tap(find.widgetWithText(FilledButton, 'Sync…'));
+    await show(tester, SummaryHeader(state: state, onExport: () => exported++));
+    await tester.tap(find.widgetWithText(FilledButton, 'Export…'));
 
-    expect(synced, 1);
+    expect(exported, 1);
     expect(find.text('ON THE CLOCK'), findsOneWidget);
     expect(find.text('TOKENS'), findsOneWidget);
   });
@@ -232,10 +232,10 @@ void main() {
     expect(find.text('Settings'), findsOneWidget);
   });
 
-  testWidgets('the sync dialog can be built on its own', (tester) async {
-    await show(tester, SyncDialog(state: state));
+  testWidgets('the export dialog can be built on its own', (tester) async {
+    await show(tester, ExportDialog(state: state));
 
-    expect(find.byType(SyncDialog), findsOneWidget);
+    expect(find.byType(ExportDialog), findsOneWidget);
   });
 
   test('the endpoint can be opened and closed from the state', () async {

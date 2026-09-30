@@ -3,25 +3,25 @@ import 'package:flutter/material.dart';
 
 import '../state/app_state.dart';
 
-/// Both directions of a sync in one place: what each target would be given,
-/// and what WorkingHours has had done to it since.
+/// Both directions of an export in one place: what each target would be
+/// given, and what WorkingHours has had done to it since.
 ///
 /// Hours are measured from the transcripts, so out is the busy direction. The
 /// way back matters all the same: a unit moved to another project, renamed or
 /// trimmed in the ledger is a correction, and it would be lost on the next scan
 /// if it were not read back.
-class SyncDialog extends StatefulWidget {
+class ExportDialog extends StatefulWidget {
   /// Creates the dialog.
-  const SyncDialog({required this.state, super.key});
+  const ExportDialog({required this.state, super.key});
 
   /// App state.
   final AppState state;
 
   @override
-  State<SyncDialog> createState() => _SyncDialogState();
+  State<ExportDialog> createState() => _ExportDialogState();
 }
 
-class _SyncDialogState extends State<SyncDialog> {
+class _ExportDialogState extends State<ExportDialog> {
   List<SyncReport>? _reports;
   List<UnitDifference> _incoming = const [];
   final Set<String> _taking = {};
@@ -94,7 +94,7 @@ class _SyncDialogState extends State<SyncDialog> {
     final enabled = kSinkNames.where(_enabled).toList();
 
     return AlertDialog(
-      title: Text(_applied ? 'Synced' : 'Sync'),
+      title: Text(_applied ? 'Exported' : 'Export'),
       content: SizedBox(
         width: 620,
         child: SingleChildScrollView(
